@@ -64,5 +64,5 @@ http://localhost:8080/hl7_http
 
 The program converts the message to flat file and sends to the TCP IP port.
 
-The tcp_client.py will send a flat file HL7 to the TCP server which sends it on the HTTP server which passes it to beeceptor as a mock endpoint /hl7
+The tcp_client.py will send a flat file HL7 to the TCP server which in turn forwards the message to the HTTP server which passes it to beeceptor as a mock endpoint /hl7
 
