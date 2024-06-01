@@ -24,8 +24,8 @@ This project provides a complete solution for converting HL7 messages between pl
 1. Clone the repository:
 
     ```sh
-    git clone <repository_url>
-    cd <repository_directory>
+    git clone https://github.com/luney-sp-76/http_to_flatfile_to_http_hl7.git
+    cd http_to_flatfile_to_http_hl7
     ```
 
 2. Install the required Python packages:
