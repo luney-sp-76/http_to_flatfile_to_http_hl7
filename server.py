@@ -8,7 +8,17 @@ import requests
 HL7_FILE_PATH = "hl7_message.txt"
 
 # Conversion functions
+
 def validate_hl7_message(hl7_message):
+    """
+    Validates an HL7 message.
+
+    Args:
+        hl7_message (str): The HL7 message to validate.
+
+    Returns:
+        tuple: A tuple containing a boolean indicating whether the message is valid and an error message if it is not valid.
+    """
     segments = hl7_message.strip().replace('\n', '\r').split('\r')
     
     if len(segments) < 2:
@@ -24,6 +34,17 @@ def validate_hl7_message(hl7_message):
     return True, None
 
 def generate_ack(hl7_message, ack_type='AA', error_message=None):
+    """
+    Generates an ACK (Acknowledgment) message for an HL7 message.
+
+    Args:
+        hl7_message (str): The HL7 message to generate the ACK for.
+        ack_type (str, optional): The type of ACK. Defaults to 'AA'.
+        error_message (str, optional): The error message to include in the ACK if the ACK type is not 'AA'. Defaults to None.
+
+    Returns:
+        str: The generated ACK message.
+    """
     segments = hl7_message.strip().replace('\n', '\r').split('\r')
     msh_segment = segments[0].split('|')
     if len(msh_segment) < 10:
@@ -45,6 +66,17 @@ def generate_ack(hl7_message, ack_type='AA', error_message=None):
     return ack_message
 
 def send_to_tcp_server(hl7_message, tcp_host='localhost', tcp_port=8081):
+    """
+    Sends an HL7 message to a TCP server.
+
+    Args:
+        hl7_message (str): The HL7 message to send.
+        tcp_host (str, optional): The TCP server host. Defaults to 'localhost'.
+        tcp_port (int, optional): The TCP server port. Defaults to 8081.
+
+    Returns:
+        str: The response from the TCP server.
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.connect((tcp_host, tcp_port))
         sock.sendall(hl7_message.encode('utf-8'))
@@ -52,7 +84,14 @@ def send_to_tcp_server(hl7_message, tcp_host='localhost', tcp_port=8081):
         return response
 
 class HL7HTTPRequestHandler(BaseHTTPRequestHandler):
+    """
+    Custom HTTP request handler for HL7 messages.
+    """
+
     def do_POST(self):
+        """
+        Handles POST requests.
+        """
         try:
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length).decode('utf-8')
@@ -119,6 +158,14 @@ class HL7HTTPRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(response).encode('utf-8'))
 
 def run_server(server_class=HTTPServer, handler_class=HL7HTTPRequestHandler, port=8080):
+    """
+    Runs the HTTP server.
+
+    Args:
+        server_class (class, optional): The HTTP server class. Defaults to HTTPServer.
+        handler_class (class, optional): The request handler class. Defaults to HL7HTTPRequestHandler.
+        port (int, optional): The port to run the server on. Defaults to 8080.
+    """
     server_address = ('', port)
     httpd = server_class(server_address, handler_class)
     print(f'Starting HTTP server on port {port}')

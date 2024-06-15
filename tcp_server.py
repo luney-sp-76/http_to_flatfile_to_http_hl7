@@ -8,6 +8,15 @@ HL7_FILE_PATH = "hl7_message.txt"
 
 # Conversion functions
 def validate_hl7_message(hl7_message):
+    """
+    Validates an HL7 message.
+
+    Args:
+        hl7_message (str): The HL7 message to validate.
+
+    Returns:
+        tuple: A tuple containing a boolean indicating whether the message is valid and an error message if applicable.
+    """
     segments = hl7_message.strip().replace('\n', '\r').split('\r')
     
     if len(segments) < 2:
@@ -23,6 +32,20 @@ def validate_hl7_message(hl7_message):
     return True, None
 
 def generate_ack(hl7_message, ack_type='AA', error_message=None):
+    """
+    Generates an ACK (Acknowledgment) message for an HL7 message.
+
+    Args:
+        hl7_message (str): The HL7 message to generate the ACK for.
+        ack_type (str, optional): The type of ACK. Defaults to 'AA'.
+        error_message (str, optional): The error message to include in the ACK if the ACK type is not 'AA'. Defaults to None.
+
+    Returns:
+        str: The generated ACK message.
+    
+    Raises:
+        ValueError: If the MSH segment of the HL7 message does not contain enough fields.
+    """
     segments = hl7_message.strip().replace('\n', '\r').split('\r')
     msh_segment = segments[0].split('|')
     if len(msh_segment) < 10:
@@ -44,6 +67,17 @@ def generate_ack(hl7_message, ack_type='AA', error_message=None):
     return ack_message
 
 def forward_to_remote_host(hl7_message, remote_host, remote_port):
+    """
+    Forwards an HL7 message to a remote TCP host.
+
+    Args:
+        hl7_message (str): The HL7 message to forward.
+        remote_host (str): The hostname or IP address of the remote TCP host.
+        remote_port (int): The port number of the remote TCP host.
+
+    Returns:
+        str: The response received from the remote TCP host.
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.connect((remote_host, remote_port))
         sock.sendall(hl7_message.encode('utf-8'))
@@ -51,11 +85,25 @@ def forward_to_remote_host(hl7_message, remote_host, remote_port):
         return response
 
 def send_to_http_server(hl7_message):
+    """
+    Sends an HL7 message to an HTTP server.
+
+    Args:
+        hl7_message (str): The HL7 message to send.
+
+    Returns:
+        str: The response received from the HTTP server.
+    """
     response = requests.post('http://localhost:8080/http_hl7', data=hl7_message, headers={'Content-Type': 'text/plain'})
     return response.text
 
 class HL7TCPHandler(socketserver.BaseRequestHandler):
     def handle(self):
+        """
+        Handles an incoming TCP connection and processes the HL7 message.
+
+        This method is called for each incoming connection to the TCP server.
+        """
         try:
             data = self.request.recv(1024).strip().decode('utf-8')
             print(f"Received HL7 message:\n{data}")
@@ -90,6 +138,13 @@ class HL7TCPHandler(socketserver.BaseRequestHandler):
             self.request.sendall(error_message.encode('utf-8'))
 
 def run_tcp_server(host='localhost', port=8081):
+    """
+    Runs the TCP server.
+
+    Args:
+        host (str, optional): The hostname or IP address to bind the server to. Defaults to 'localhost'.
+        port (int, optional): The port number to bind the server to. Defaults to 8081.
+    """
     server = socketserver.TCPServer((host, port), HL7TCPHandler)
     print(f"Starting TCP server on {host}:{port}")
     server.serve_forever()
