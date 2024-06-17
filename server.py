@@ -2,6 +2,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import socket
 import datetime
+import ssl
 import requests
 
 # Define paths for storing the flat files
@@ -46,10 +47,11 @@ def generate_ack(hl7_message, ack_type='AA', error_message=None):
 
 def send_to_tcp_server(hl7_message, tcp_host='localhost', tcp_port=8081):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.connect((tcp_host, tcp_port))
-        sock.sendall(hl7_message.encode('utf-8'))
-        response = sock.recv(1024).decode('utf-8')
-        return response
+        with ssl.wrap_socket(sock, ssl_version=ssl.PROTOCOL_TLS, ciphers="ADH-AES256-SHA") as wsock:
+            wsock.connect((tcp_host, tcp_port))
+            wsock.sendall(hl7_message.encode('utf-8'))
+            response = wsock.recv(1024).decode('utf-8')
+            return response
 
 class HL7HTTPRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self):
@@ -96,7 +98,7 @@ class HL7HTTPRequestHandler(BaseHTTPRequestHandler):
                 else:
                     ack_message = generate_ack(post_data, ack_type='AE', error_message=validation_error)
                 
-                # Forward the HL7 message to another domain
+                # Forward the HL7 message to another domain - auto TLS as verify is not set to False 
                 domain_response = requests.post('https://testresponse.free.beeceptor.com/hl7', data=post_data, headers={'Content-Type': 'text/plain'})
                 print(f"Forwarded HL7 message to another domain. Response: {domain_response.text}")
 

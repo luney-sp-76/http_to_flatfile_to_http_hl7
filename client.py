@@ -4,10 +4,12 @@ import json
 # Define paths for storing the flat files
 HL7_FILE_PATH = "hl7_message.txt"
 
+# Ideally generate cert on server side, send to client, connect over TLS 
 def send_plain_text_to_server(plain_text, server_url='http://localhost:8080/hl7_http'):
     response = requests.post(server_url, data=plain_text, headers={'Content-Type': 'text/plain'})
     return response.json()
 
+# Ideally generate cert on server side, send to client, connect over TLS 
 def send_hl7_to_server(hl7_message, server_url='http://localhost:8080/http_hl7'):
     response = requests.post(server_url, data=hl7_message, headers={'Content-Type': 'text/plain'})
     return response.json()
