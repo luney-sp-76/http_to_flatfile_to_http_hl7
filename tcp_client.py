@@ -16,6 +16,17 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:
 """
 
 def send_hl7_message(hl7_message, host='localhost', port=8081):
+    """
+    Sends an HL7 message to a TCP server.
+
+    Args:
+        hl7_message (str): The HL7 message to be sent.
+        host (str, optional): The hostname or IP address of the TCP server. Defaults to 'localhost'.
+        port (int, optional): The port number of the TCP server. Defaults to 8081.
+
+    Returns:
+        str: The response received from the TCP server.
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         with ssl.wrap_socket(sock, ssl_version=ssl.PROTOCOL_TLS, ciphers="ADH-AES256-SHA") as wsock:
             wsock.connect((host, port))
