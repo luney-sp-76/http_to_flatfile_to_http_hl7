@@ -32,6 +32,7 @@ def validate_hl7_message(hl7_message):
     
     return True, None
 
+
 def generate_ack(hl7_message, ack_type='AA', error_message=None):
     """
     Generates an ACK (Acknowledgment) message for an HL7 message.
@@ -68,20 +69,6 @@ def generate_ack(hl7_message, ack_type='AA', error_message=None):
     return ack_message
 
 
-"""
-Example of server secure socket using certs and host name 
-from https://docs.python.org/3/library/ssl.html
-
-context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-context.load_cert_chain('/path/to/certchain.pem', '/path/to/private.key')
-
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:
-    sock.bind(('127.0.0.1', 8443))
-    sock.listen(5)
-    with context.wrap_socket(sock, server_side=True) as ssock:
-        conn, addr = ssock.accept()
-"""
-
 def forward_to_remote_host(hl7_message, remote_host, remote_port):
     """
     Forwards an HL7 message to a remote TCP host.
@@ -94,16 +81,21 @@ def forward_to_remote_host(hl7_message, remote_host, remote_port):
     Returns:
         str: The response received from the remote TCP host.
     """
+
+    context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(certfile='./keys/tcp_server-cert.pem', keyfile='./keys/tcp_server-key.pem')
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         
-        # Wrap the socket in TLS - ADH-AES256-SHA is anonymous, can change this in the future to allow certs 
-        with ssl.wrap_socket(sock, ssl_version=ssl.PROTOCOL_TLS_SERVER, ciphers="ADH-AES256-SHA") as wsock:
+        # Wrap the socket in TLS
+        with context.wrap_socket(sock, server_side=True) as ssock:
 
-            # Once socked is wrapped, reference the 'wsock' var going forward rather than 'sock'
-            wsock.connect((remote_host, remote_port))
-            wsock.sendall(hl7_message.encode('utf-8'))
-            response = wsock.recv(1024).decode('utf-8')
+            # Once socked is wrapped, reference the 'ssock' var going forward rather than 'sock'
+            ssock.connect((remote_host, remote_port))
+            ssock.sendall(hl7_message.encode('utf-8'))
+            response = ssock.recv(1024).decode('utf-8')
             return response
+
 
 def send_to_http_server(hl7_message):
 
@@ -122,6 +114,7 @@ def send_to_http_server(hl7_message):
     response = requests.post('http://localhost:8080/http_hl7', data=hl7_message, headers={'Content-Type': 'text/plain'})
     return response.text
 
+
 class HL7TCPHandler(socketserver.BaseRequestHandler):
     def handle(self):
         """
@@ -131,7 +124,11 @@ class HL7TCPHandler(socketserver.BaseRequestHandler):
         """
         try:
 
-            # If receiving data, will be done over TLS via client - tcp_client.py line 6 
+            context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_SERVER)
+            context.load_cert_chain(certfile='./keys/tcp-server-cert.pem', keyfile='./keys/tcp-server-key.pem')
+
+            self.request = context.wrap_socket(self.request, server_side=True)
+
             data = self.request.recv(1024).strip().decode('utf-8')
             print(f"Received HL7 message:\n{data}")
 
@@ -146,7 +143,6 @@ class HL7TCPHandler(socketserver.BaseRequestHandler):
             else:
                 ack_message = generate_ack(data, ack_type='AE', error_message=validation_error)
             
-            # Send the ACK message back to the client - already encrypted, tcp_client.py line 6 
             self.request.sendall(ack_message.encode('utf-8'))
             
             # Forward the HL7 message to a remote TCP host

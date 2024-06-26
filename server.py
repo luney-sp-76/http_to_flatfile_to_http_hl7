@@ -78,12 +78,20 @@ def send_to_tcp_server(hl7_message, tcp_host='localhost', tcp_port=8081):
     Returns:
         str: The response from the TCP server.
     """
+
+    context = ssl.create_default_context()
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.load_verify_locations(cafile='./keys/ca-cert.pem')
+    context.load_cert_chain(certfile="./keys/tcp-client-cert.pem", keyfile="./keys/tcp-client-key.pem")
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        with ssl.wrap_socket(sock, ssl_version=ssl.PROTOCOL_TLS, ciphers="ADH-AES256-SHA") as wsock:
-            wsock.connect((tcp_host, tcp_port))
-            wsock.sendall(hl7_message.encode('utf-8'))
-            response = wsock.recv(1024).decode('utf-8')
+        with context.wrap_socket(sock, server_hostname=tcp_host) as ssock:
+            ssock.connect((tcp_host, tcp_port))
+
+            ssock.sendall(hl7_message.encode('utf-8'))
+            response = ssock.recv(1024).decode('utf-8')
             return response
+        
 
 class HL7HTTPRequestHandler(BaseHTTPRequestHandler):
     """

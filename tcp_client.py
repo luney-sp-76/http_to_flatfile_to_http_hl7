@@ -1,20 +1,6 @@
 import socket
 import ssl
 
-"""
-Example of client secure socket using certs and host name 
-from https://docs.python.org/3/library/ssl.html
-
-hostname = 'www.python.org'
-# PROTOCOL_TLS_CLIENT requires valid cert chain and hostname
-context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-context.load_verify_locations('path/to/cabundle.pem')
-
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as sock:
-    with context.wrap_socket(sock, server_hostname=hostname) as ssock:
-        print(ssock.version())
-"""
-
 def send_hl7_message(hl7_message, host='localhost', port=8081):
     """
     Sends an HL7 message to a TCP server.
@@ -27,13 +13,19 @@ def send_hl7_message(hl7_message, host='localhost', port=8081):
     Returns:
         str: The response received from the TCP server.
     """
+
+    context = ssl.create_default_context()
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.load_verify_locations(cafile='./keys/ca-cert.pem')
+    context.load_cert_chain(certfile="./keys/tcp-client-cert.pem", keyfile="./keys/tcp-client-key.pem")
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        with ssl.wrap_socket(sock, ssl_version=ssl.PROTOCOL_TLS, ciphers="ADH-AES256-SHA") as wsock:
-            wsock.connect((host, port))
+        with context.wrap_socket(sock, server_hostname=host) as ssock:
+            ssock.connect((host, port))
 
             # Encrypt the message before sending? 
-            wsock.sendall(hl7_message.encode('utf-8'))
-            response = wsock.recv(1024).decode('utf-8')
+            ssock.sendall(hl7_message.encode('utf-8'))
+            response = ssock.recv(1024).decode('utf-8')
             return response
 
 if __name__ == "__main__":
