@@ -35,6 +35,16 @@ EVN|A31|20230523102000
 PID|1||12345678^^^RIH^MR||Doe^John^A||19800101|M|||456 Elm St^^Newtown^CA^90211^USA||555-5678|||||M|N|123-45-6789
 PV1|1|O|^^^RIH||||1234^Smith^John^A|||||||||||||||12345678"""
 
+#     hl7_message = """MSH|^~\&|LabSystem|LabFacility|ClinicSystem|ClinicFacility|202407011200||ORU^R01|67890|P|2.4
+# PID|1||KK12345^^^Hosp^MR||Kong^King||19331108|M|||Skull Island^^Pacific Ocean^^^|||555-1234|||M||KK98765^^^Hosp^MR|123-45-6789
+# PV1|1|O|Outpatient^Clinic^1^Hosp^^Room^1|3|||99999^Smith^John^A^III|99999^Johnson^Emily||Consulting^99999|General^99999|||||||||99999^Brown^Charlie|||||||||||||||||||||||||202407011130
+# ORC|RE|ORD67890|OBS67890|456||CM||||202407011200|99999^Smith^John^A^III
+# OBR|1|ORD67890|OBS67890|5678^Comprehensive Metabolic Panel^L||202407011130|202407011130|||||||99999^Smith^John^A^III|||||||||F|||||||
+# OBX|1|NM|5892-1^Glucose^LN||95|mg/dL|70-99|N|||F
+# OBX|2|NM|17861-6^Calcium^LN||9.5|mg/dL|8.5-10.2|N|||F
+# OBX|3|NM|6690-2^Potassium^LN||4.2|mmol/L|3.5-5.1|N|||F
+# """
+
     # Send HL7 message to server
     response = send_hl7_message(hl7_message)
     print("Response from TCP server:")

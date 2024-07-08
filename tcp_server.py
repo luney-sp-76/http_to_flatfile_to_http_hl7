@@ -145,11 +145,11 @@ class HL7TCPHandler(socketserver.BaseRequestHandler):
             
             self.request.sendall(ack_message.encode('utf-8'))
             
-            # Forward the HL7 message to a remote TCP host
-            remote_host = 'localhost'  # Replace with actual remote host
-            remote_port = 8082  # Replace with actual remote port
-            remote_response = forward_to_remote_host(data, remote_host, remote_port)
-            print(f"Forwarded HL7 message to remote TCP host. Response: {remote_response}")
+            # # Forward the HL7 message to a remote TCP host
+            # remote_host = 'localhost'  # Replace with actual remote host
+            # remote_port = 8082  # Replace with actual remote port
+            # remote_response = forward_to_remote_host(data, remote_host, remote_port)
+            # print(f"Forwarded HL7 message to remote TCP host. Response: {remote_response}")
             
             # Forward the HL7 message to the HTTP server
             http_response = send_to_http_server(data)

@@ -1,0 +1,4 @@
+[submodule "poll_synthea"]
+	path = poll_synthea
+	url = https://github.com/luney-sp-76/poll_synthea
+	branch = tcp-http

@@ -4,6 +4,8 @@ import socket
 import datetime
 import ssl
 import requests
+from poll_synthea.generators.utilities import parse_HL7_message, save_to_firestore
+from poll_synthea.main import initialize_firestore
 
 # Define paths for storing the flat files
 HL7_FILE_PATH = "hl7_message.txt"
@@ -144,6 +146,18 @@ class HL7HTTPRequestHandler(BaseHTTPRequestHandler):
                     ack_message = generate_ack(post_data, ack_type='AA')
                 else:
                     ack_message = generate_ack(post_data, ack_type='AE', error_message=validation_error)
+
+                print(f"Post data received: \n{post_data}")
+
+                hl7, patient_info = parse_HL7_message(msg=post_data)
+                
+                print(hl7)
+                print(patient_info)
+
+                if patient_info:
+                    print("Received patient information - preparing to upload to firestore...")
+                    db = initialize_firestore()
+                    save_to_firestore(db=db, patient_info=patient_info)
                 
                 # Forward the HL7 message to another domain - auto TLS as verify is not set to False 
                 domain_response = requests.post('https://testresponse.free.beeceptor.com/hl7', data=post_data, headers={'Content-Type': 'text/plain'})
