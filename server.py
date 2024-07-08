@@ -10,6 +10,8 @@ from poll_synthea.main import initialize_firestore
 # Define paths for storing the flat files
 HL7_FILE_PATH = "hl7_message.txt"
 
+FIRESTORE_DB = initialize_firestore()
+
 # Conversion functions
 
 def validate_hl7_message(hl7_message):
@@ -151,13 +153,12 @@ class HL7HTTPRequestHandler(BaseHTTPRequestHandler):
 
                 hl7, patient_info = parse_HL7_message(msg=post_data)
                 
-                print(hl7)
+                # print(hl7)
                 print(patient_info)
 
                 if patient_info:
                     print("Received patient information - preparing to upload to firestore...")
-                    db = initialize_firestore()
-                    save_to_firestore(db=db, patient_info=patient_info)
+                    save_to_firestore(db=FIRESTORE_DB, patient_info=patient_info)
                 
                 # Forward the HL7 message to another domain - auto TLS as verify is not set to False 
                 domain_response = requests.post('https://testresponse.free.beeceptor.com/hl7', data=post_data, headers={'Content-Type': 'text/plain'})
