@@ -23,6 +23,7 @@ https://github.blog/2016-02-01-working-with-submodules/
 - Python 3.7 or higher
 - The `requests` library for HTTP client functionality
 
+
 ## Installation
 
 1. Clone the repository:
