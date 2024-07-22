@@ -9,3 +9,5 @@ fhir
 fhir.resources
 pydantic 
 fastapi
+google.cloud.firestore
+hl7apy
