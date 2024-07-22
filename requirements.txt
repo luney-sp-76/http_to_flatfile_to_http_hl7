@@ -5,3 +5,7 @@ ssl
 requests
 json
 http
+fhir
+fhir.resources
+pydantic 
+fastapi
