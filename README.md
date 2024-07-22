@@ -4,6 +4,10 @@
 
 This project provides a complete solution for converting HL7 messages between plain/text HTTP payloads, flat files, and TCP connections. It includes validation of HL7 messages and generation of appropriate ACK messages. The solution is implemented with a simple HTTP server and TCP server.
 
+The project structure comprises of different sub-modules that are combined to create working tcp/ip, http servers and a FHIR patient creation module. To combine the projects use this guide
+
+https://github.blog/2016-02-01-working-with-submodules/
+
 ## Features
 
 - Convert HL7 messages from HTTP plain/text to flat files.
