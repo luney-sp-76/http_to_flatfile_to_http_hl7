@@ -22,9 +22,8 @@ def send_hl7_message(hl7_message, host='localhost', port=8081):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         with context.wrap_socket(sock, server_hostname=host) as ssock:
             ssock.connect((host, port))
-
-            # Encrypt the message before sending? 
             ssock.sendall(hl7_message.encode('utf-8'))
+
             response = ssock.recv(1024).decode('utf-8')
             return response
 
@@ -36,7 +35,7 @@ if __name__ == "__main__":
 # PV1|1|O|^^^RIH||||1234^Smith^John^A|||||||||||||||12345678"""
 
     hl7_message = """MSH|^~\&|LabSystem|LabFacility|ClinicSystem|ClinicFacility|202407011200||ORU^R01|67890|P|2.4|
-PID|1|PK123456|KK12346^^^Hosp^MR||Kong^King^Jr||19331108|M|||123 Jungle Ave^^Skull Island^SI^99999^Pacific|555-1234|||M||KK98765^^^Hosp^MR||123-45-6789|
+PID|1|PK123456|KK12349^^^Hosp^MR||Kong^King^Jr||19331108|M|||123 Jungle Ave^^Skull Island^SI^99999^GB|555-1234|||M||KK98765^^^Hosp^MR||123-45-6789|
 PV1|1|O|Outpatient^Clinic^1^Hosp^^Room^1|3|||99999^Smith^John^A^III|99999^Johnson^Emily||Consulting^99999|General^99999|||||||||99999^Brown^Charlie|||||||||||||||||||||||||202407011130|
 ORC|RE|ORD67890|OBS67890|456||CM||||202407011200|99999^Smith^John^A^III|
 OBR|1|ORD67890|OBS67890|5678^Comprehensive Metabolic Panel^L||202407011130|202407011130|||||||99999^Smith^John^A^III|||||||||F||||||||

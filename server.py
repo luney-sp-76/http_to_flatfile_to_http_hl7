@@ -4,16 +4,17 @@ import socket
 import datetime
 import ssl
 import requests
-from poll_synthea.generators.utilities import parse_HL7_message, save_to_firestore
+from poll_synthea.generators.utilities import parse_HL7_message, save_to_firestore, parse_fhir_message
 from poll_synthea.main import initialize_firestore
 
 # Define paths for storing the flat files
 HL7_FILE_PATH = "hl7_message.txt"
+FHIR_FILE_PATH = "fhir_doc.json"
 
+# Global firestore client
 FIRESTORE_DB = initialize_firestore()
 
 # Conversion functions
-
 def validate_hl7_message(hl7_message):
     """
     Validates an HL7 message.
@@ -37,6 +38,7 @@ def validate_hl7_message(hl7_message):
         return False, "MSH segment does not contain enough fields"
     
     return True, None
+
 
 def generate_ack(hl7_message, ack_type='AA', error_message=None):
     """
@@ -69,6 +71,7 @@ def generate_ack(hl7_message, ack_type='AA', error_message=None):
     
     ack_message = '|'.join(ack_msh_segment) + '\r' + '|'.join(msa_segment) + '\r'
     return ack_message
+
 
 def send_to_tcp_server(hl7_message, tcp_host='localhost', tcp_port=8081):
     """
@@ -160,14 +163,48 @@ class HL7HTTPRequestHandler(BaseHTTPRequestHandler):
                     print("Received patient information - preparing to upload to firestore...")
                     save_to_firestore(db=FIRESTORE_DB, patient_info=patient_info)
                 
-                # Forward the HL7 message to another domain - auto TLS as verify is not set to False 
+                # Forward the HL7 message to another domain
                 domain_response = requests.post('https://testresponse.free.beeceptor.com/hl7', data=post_data, headers={'Content-Type': 'text/plain'})
                 print(f"Forwarded HL7 message to another domain. Response: {domain_response.text}")
 
+                # Response to original POST request
                 response = {
                     'hl7_message': post_data,
                     'ack_message': ack_message,
                     'domain_response': domain_response.text
+                }
+                
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(response).encode('utf-8'))
+
+            elif self.path == '/fhir':
+                # Save the fhir document to a flat file
+                with open(FHIR_FILE_PATH, 'w') as file:
+                    file.write(post_data)
+
+                # Validate and generate ACK message
+                patient_info = None
+                try:
+                    patient_info = parse_fhir_message(db=FIRESTORE_DB, fhir_message=post_data)
+                except Exception as e:
+                    print(f"Unable to parse fhir doc: {repr(e)}")
+
+                if patient_info:
+                    ack_message = "Parsing success."
+                    # Attempt to upload to Firestore - will work provided patient does not already exist 
+                    save_to_firestore(db=FIRESTORE_DB, patient_info=patient_info)
+                else:
+                    ack_message = "Parsing failure."
+
+                print(f"Post data received: \n{post_data[:100]}...")
+
+                # Response to original POST request
+                response = {
+                    'fhir_message': post_data[:100],
+                    'ack_message': ack_message, 
+                    'domain_response': "DOMAIN RESPONSE GOES HERE"
                 }
                 
                 self.send_response(200)
@@ -181,6 +218,7 @@ class HL7HTTPRequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
             response = {'error': str(e)}
             self.wfile.write(json.dumps(response).encode('utf-8'))
+
 
 def run_server(server_class=HTTPServer, handler_class=HL7HTTPRequestHandler, port=8080):
     """

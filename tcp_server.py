@@ -114,7 +114,7 @@ def send_to_http_server(hl7_message):
     response = requests.post('http://localhost:8080/http_hl7', data=hl7_message, headers={'Content-Type': 'text/plain'})
     return response.text
 
-
+ 
 class HL7TCPHandler(socketserver.BaseRequestHandler):
     def handle(self):
         """
