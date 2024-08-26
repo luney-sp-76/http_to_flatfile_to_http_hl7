@@ -2,12 +2,53 @@ import pathlib
 from firebase_admin import firestore
 from poll_synthea.generators.utilities import PatientInfo, call_for_patients, \
     parse_fhir_message, save_to_firestore, parse_HL7_message, increment_id, update_following_ORM_O01, \
-    update_following_ORU_R01
-from poll_synthea.main import initialize_firestore, create_orm_message
+    update_following_ORU_R01, get_firestore_age_range
+from poll_synthea.main import initialize_firestore, create_orm_message, create_adt_message, create_oru_message
 import time
 
 BASE_DIR = pathlib.Path.cwd()
 work_folder_path = BASE_DIR / "Work"
+
+
+def message_menu(patients: list[PatientInfo]) -> None: 
+    """ Displays messages that may be generated using present patient information
+    """
+    print("1: Generate ADT^A01 messages")
+    print("2: Generate ORM^O01 messages")
+    print("3: Generate ORU^R01 messages")
+    print("4: No further action")
+
+    choice = input("\n: ")
+    if choice == "1": 
+        for patient in patients: 
+            hl7 = create_adt_message(patient_info=patient, messageType="ADT_A01")
+
+            # Perform action here - could be save to flatfile, send to Ultra, etc.
+            for child in hl7.children:
+                print(child.to_er7())
+
+    elif choice == "2": 
+        for patient in patients: 
+            hl7 = create_orm_message(patient_info=patient, messageType="ORM_O01")
+
+            # Perform action here - could be save to flatfile, send to Ultra, etc.
+            for child in hl7.children:
+                print(child.to_er7())
+
+    elif choice == "3": 
+        for patient in patients: 
+            hl7 = create_oru_message(patient_info=patient, messageType="ORU_R01")
+
+            # Perform action here - could be save to flatfile, send to Ultra, etc.
+            for child in hl7.children:
+                print(child.to_er7())
+
+    elif choice == "4": 
+        pass 
+
+    else: 
+        print("Unrecognised input - please select a number from the menu below.")
+        message_menu()
 
 
 def generate_fhir_docs(num_of_docs, age_lower:int=10, age_upper:int=80, sex:str="M") -> None: 
@@ -72,6 +113,59 @@ def generate_patient_objects(db: firestore.client, num_of_patients: int, age_low
 
     return patient_list[:num_of_patients]
 
+
+def generate_and_upload(db: firestore.client) -> None: 
+    """ Generates a number of new fhir documents, parses the relevant patient information 
+    from them, and uploads this information to Firestore 
+
+    Args: 
+    - db: ``firestore.client``, the client used to communicate with Firestore 
+
+    Returns: 
+    - `None`
+    """
+
+    try: 
+        num_of_patients = int(input("Number of patients to generate: "))
+        if num_of_patients < 1:
+            raise Exception
+        age_lower = int(input("Minimum patient age: "))
+        if age_lower < 0:
+            raise Exception
+        age_upper = int(input("Maximum patient age: "))
+        if age_upper < age_lower:
+            raise Exception
+        sex = input("Sex of patients (M/F): ")
+        if (sex != "M") and (sex != "F"):
+            raise Exception
+    except Exception: 
+        print("Invalid input - returning to main menu. ")
+    else:
+        patients = generate_patient_objects(db=db, num_of_patients=num_of_patients, age_lower=age_lower, age_upper=age_upper, sex=sex)
+        for patient in patients: 
+            save_to_firestore(db=db, patient_info=patient) 
+        print("Patients successfully generated and uploaded. Select a number from the menu below.")
+        message_menu(patients=patients)
+
+
+def retrieve_patients(db: firestore.client) -> None: 
+
+    try: 
+        num_of_patients = int(input("Number of patients to retrieve: "))
+        lower = int(input("Minimum patient age: "))
+        upper = int(input("Maximum patient age: "))  
+    except: 
+        print("Unrecognised input, returning to main menu.")
+    else: 
+
+        try: 
+            patients = get_firestore_age_range(db=db, num_of_patients=num_of_patients, lower=lower, upper=upper, peter_pan=True)
+        except Exception as e: 
+            print("An error was encountered during the retrieval of patients.", repr(e))
+            print("Returning to main menu. ")
+        else: 
+            print("Patients successfully retrieved. Select an option from the menu below.")
+            message_menu(patients=patients)
 
 
 if __name__ == '__main__':
