@@ -4,7 +4,8 @@ import socket
 import datetime
 import ssl
 import requests
-from poll_synthea.generators.utilities import parse_HL7_message, save_to_firestore, parse_fhir_message
+from poll_synthea.generators.utilities import parse_HL7_message, save_to_firestore, \
+    parse_fhir_message, update_following_ORM_O01, update_following_ORU_R01
 from poll_synthea.main import initialize_firestore
 
 # Define paths for storing the flat files
@@ -154,27 +155,34 @@ class HL7HTTPRequestHandler(BaseHTTPRequestHandler):
 
                 print(f"Post data received: \n{post_data}")
 
-                hl7, patient_info = parse_HL7_message(msg=post_data)
-                
-                # print(hl7)
-                print(patient_info)
+                hl7, patient_info = parse_HL7_message(msg=post_data, db=FIRESTORE_DB)
 
                 if patient_info:
-                    print("Received patient information - preparing to upload to firestore...")
-                    save_to_firestore(db=FIRESTORE_DB, patient_info=patient_info)
-                
-                # Forward the HL7 message to another domain
-                domain_response = requests.post('https://testresponse.free.beeceptor.com/hl7', data=post_data, headers={'Content-Type': 'text/plain'})
-                print(f"Forwarded HL7 message to another domain. Response: {domain_response.text}")
+                    if hl7.msh.msh_9.to_er7() == "ADT^A01":
+                        print("Received patient information - preparing to upload to firestore...")
+                        response_code = save_to_firestore(db=FIRESTORE_DB, patient_info=patient_info)
+                    elif hl7.msh.msh_9.to_er7() == "ORM^O01":
+                        print("Received patient observation request - preparing to update patient info...")
+                        response_code = update_following_ORM_O01(db=FIRESTORE_DB, patient_info=patient_info)
+                    elif hl7.msh.msh_9.to_er7() == "ORU^R01": 
+                        print("Received patient observation result - preparing to update patient info...")
+                        response_code = update_following_ORU_R01(db=FIRESTORE_DB, patient_info=patient_info)
+                    else: 
+                        print("Unsupported message type.")
+                        response_code = 500
+                        
+                # # Forward the HL7 message to another domain?
+                # domain_response = requests.post('https://testresponse.free.beeceptor.com/hl7', data=post_data, headers={'Content-Type': 'text/plain'})
+                # print(f"Forwarded HL7 message to another domain. Response: {domain_response.text}")
 
                 # Response to original POST request
                 response = {
                     'hl7_message': post_data,
                     'ack_message': ack_message,
-                    'domain_response': domain_response.text
+                    'domain_response': response_code
                 }
                 
-                self.send_response(200)
+                self.send_response(response_code)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
                 self.wfile.write(json.dumps(response).encode('utf-8'))
@@ -194,9 +202,10 @@ class HL7HTTPRequestHandler(BaseHTTPRequestHandler):
                 if patient_info:
                     ack_message = "Parsing success."
                     # Attempt to upload to Firestore - will work provided patient does not already exist 
-                    save_to_firestore(db=FIRESTORE_DB, patient_info=patient_info)
+                    response_code = save_to_firestore(db=FIRESTORE_DB, patient_info=patient_info)
                 else:
                     ack_message = "Parsing failure."
+                    response_code = 400
 
                 print(f"Post data received: \n{post_data[:100]}...")
 
@@ -204,7 +213,7 @@ class HL7HTTPRequestHandler(BaseHTTPRequestHandler):
                 response = {
                     'fhir_message': post_data[:100],
                     'ack_message': ack_message, 
-                    'domain_response': "DOMAIN RESPONSE GOES HERE"
+                    'domain_response': response_code
                 }
                 
                 self.send_response(200)

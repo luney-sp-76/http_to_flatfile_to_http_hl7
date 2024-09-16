@@ -3,6 +3,7 @@ import datetime
 import socket
 import ssl
 import requests
+import json
 
 # Define paths for storing the flat files
 HL7_FILE_PATH = "hl7_message.txt"
@@ -82,17 +83,16 @@ def forward_to_remote_host(hl7_message, remote_host, remote_port):
         str: The response received from the remote TCP host.
     """
 
-    context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_SERVER)
-    context.load_cert_chain(certfile='./keys/tcp_server-cert.pem', keyfile='./keys/tcp_server-key.pem')
+    context = ssl.create_default_context()
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.load_verify_locations(cafile='./keys/ca-cert.pem')
+    context.load_cert_chain(certfile="./keys/tcp-client-cert.pem", keyfile="./keys/tcp-client-key.pem")
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        
-        # Wrap the socket in TLS
-        with context.wrap_socket(sock, server_side=True) as ssock:
-
-            # Once socked is wrapped, reference the 'ssock' var going forward rather than 'sock'
+        with context.wrap_socket(sock, server_hostname=remote_host) as ssock:
             ssock.connect((remote_host, remote_port))
             ssock.sendall(hl7_message.encode('utf-8'))
+
             response = ssock.recv(1024).decode('utf-8')
             return response
 
@@ -122,6 +122,11 @@ class HL7TCPHandler(socketserver.BaseRequestHandler):
 
         This method is called for each incoming connection to the TCP server.
         """
+        response_dict = {
+                "tcp_server_response" : None,
+                "dummy_ultra_response" : None,
+            }
+            
         try:
 
             context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_SERVER)
@@ -129,12 +134,17 @@ class HL7TCPHandler(socketserver.BaseRequestHandler):
 
             self.request = context.wrap_socket(self.request, server_side=True)
 
-            data = self.request.recv(1024).strip().decode('utf-8')
+            data = self.request.recv(1024).strip().decode('utf-8', 'ignore')
+            print("Received connection...")
+            
+            if not data:
+                raise ConnectionAbortedError()
+            
             print(f"Received HL7 message:\n{data}")
 
             # Save the HL7 message to a flat file - encrypt? 
-            with open(HL7_FILE_PATH, 'w') as file:
-                file.write(data)
+            # with open(HL7_FILE_PATH, 'w') as file:
+            #     file.write(data)
             
             # Validate and generate ACK message
             is_valid, validation_error = validate_hl7_message(data)
@@ -143,22 +153,42 @@ class HL7TCPHandler(socketserver.BaseRequestHandler):
             else:
                 ack_message = generate_ack(data, ack_type='AE', error_message=validation_error)
             
-            self.request.sendall(ack_message.encode('utf-8'))
+            response_dict["tcp_server_response"] = ack_message
             
-            # # Forward the HL7 message to a remote TCP host
-            # remote_host = 'localhost'  # Replace with actual remote host
-            # remote_port = 8082  # Replace with actual remote port
-            # remote_response = forward_to_remote_host(data, remote_host, remote_port)
-            # print(f"Forwarded HL7 message to remote TCP host. Response: {remote_response}")
+            if is_valid:
+                # # Forward the HL7 message to a remote TCP host
+                remote_host = 'localhost'  # Replace with actual remote host
+                remote_port = 8082  # Replace with actual remote port
+                remote_response = forward_to_remote_host(data, remote_host, remote_port)
+                print(f"Forwarded HL7 message to remote TCP host. Response: {remote_response}")
+            else: 
+                remote_response = None
             
-            # Forward the HL7 message to the HTTP server
-            http_response = send_to_http_server(data)
-            print(f"Forwarded HL7 message to HTTP server. Response: {http_response}")
-        
+            if remote_response:
+                response_dict["dummy_ultra_response"] = remote_response
+            
+            payload = json.dumps(response_dict).encode('utf-8')
+            
+            self.request.sendall(payload)
+            
+            # Forward the HL7 message to the HTTP server? Why would we do this?
+            # http_response = send_to_http_server(data)
+            # print(f"Forwarded HL7 message to HTTP server. Response: {http_response}")
+            
+        except ConnectionResetError:
+            # This will catch the case when the client has shut down the connection
+            print("Connection reset - closing the connection.")
+            
+        except ConnectionAbortedError:
+            # This will catch the case when the client has shut down the connection
+            print("No data detected - closing the connection.")
+            
         except Exception as e:
-            error_message = f"Error processing message: {str(e)}"
+            error_message = f"Error: {repr(e)}"
             print(error_message)
-            self.request.sendall(error_message.encode('utf-8'))
+            
+            response_dict['tcp_server_response'] = error_message
+            self.request.sendall(json.dumps(response_dict).encode('utf-8'))
 
 def run_tcp_server(host='localhost', port=8081):
     """

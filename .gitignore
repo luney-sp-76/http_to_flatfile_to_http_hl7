@@ -1,5 +1,8 @@
 # Ignore all json files, as many Fhir docs will be created in the work folder
 *.json 
 
-# Ignore all text files, as many hl7 messages may be saved as text files
-*.txt 
+# Ignore all HL7 files 
+*.hl7
+
+# Ignore personal todo list 
+todo
