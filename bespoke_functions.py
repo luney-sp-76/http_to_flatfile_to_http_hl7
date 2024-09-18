@@ -2,7 +2,7 @@ import json
 import pathlib
 from firebase_admin import firestore
 from poll_synthea.generators.utilities import PatientInfo, call_for_patients, \
-    parse_fhir_message, save_to_firestore, parse_HL7_message, update_following_ORM_O01, \
+    parse_fhir_message, patient_exists, save_to_firestore, parse_HL7_message, update_following_ORM_O01, \
     update_following_ORU_R01, get_firestore_age_range, under_document_size_limit
 from poll_synthea.main import initialize_firestore, create_adt_message
 from tcp_client import send_hl7_message
@@ -10,14 +10,21 @@ from tcp_client import send_hl7_message
 # Paths 
 BASE_DIR = pathlib.Path.cwd()
 WORK_FOLDER_PATH = BASE_DIR / "Work"
+IMPORT_FOLDER_PATH = BASE_DIR / "Import"
 UPLOADED_FOLDER_PATH = BASE_DIR / "UploadedPatients"
 FAILED_FOLDER_PATH = BASE_DIR / "FailedPatients"
+HL7_GEN_FOLDER_PATH = BASE_DIR / "HL7gen"
+SENT_HL7_PATH = BASE_DIR / "SentHL7"
+FAILED_HL7_PATH = BASE_DIR / "UnsentHL7"
 
 
 class UltraNotHappyError(Exception):
     pass
 
 class DocumentSizeExceededError(Exception):
+    pass
+
+class PatientExistsError(Exception):
     pass
 
 
@@ -57,10 +64,26 @@ def generate_fhir_docs() -> None:
         call_for_patients(info=info)
 
 
-def upload_fhir_to_firestore(db: firestore.client) -> list[PatientInfo] | None: 
+def upload_fhir_to_firestore(db: firestore.client, folder_path:pathlib.Path=WORK_FOLDER_PATH) -> list[PatientInfo] | None: 
+    """Parses and uploads all patient records in a given folder to the database, contingent upon a response 
+    of 200 from the dummy Ultra server on the receipt of a corresponding ADT^A01 HL7 message.
+
+    Args:
+        db (firestore.client): the database client used to access Firestore
+        folder_path (pathlib.Path, optional): the folder to look in for Fhir docs. Defaults to WORK_FOLDER_PATH.
+
+    Raises:
+        DocumentSizeExceededError: raised if the size of the patient record will exceed the max record size in the database
+        PatientExistsError: raised if the patient record already exists in the database
+        Exception: raised if there is an error when attempting to construct an ADT^A01 HL7 message using the patient info 
+        UltraNotHappyError: raised if the dummy Ultra server does not respond with 200
+
+    Returns:
+        list[PatientInfo] | None: a list of successfully uploaded patients. If none are uploaded, returns ``None``
+    """
     patient_list = []
 
-    for file in WORK_FOLDER_PATH.glob("*.json"):
+    for file in folder_path.glob("*.json"):
             try: 
                 with open(file, "r") as f:
                     fhir_message = f.read()
@@ -70,6 +93,9 @@ def upload_fhir_to_firestore(db: firestore.client) -> list[PatientInfo] | None:
                     
                     if not under_document_size_limit(db=db, patient_info=patient_info):
                         raise DocumentSizeExceededError()
+                    
+                    if patient_exists(db=db, patient_info=patient_info):
+                        raise PatientExistsError()
                         
                     hl7 = create_adt_message(patient_info=patient_info, messageType="ADT_A01")
                     if not hl7:
@@ -81,6 +107,11 @@ def upload_fhir_to_firestore(db: firestore.client) -> list[PatientInfo] | None:
             except DocumentSizeExceededError:
                 print("Document holding patient info will exceed Firestore size limit - aborting save to database.")
                 pathlib.Path(FAILED_FOLDER_PATH).mkdir(exist_ok=True)
+                pathlib.Path(file).rename(FAILED_FOLDER_PATH / file.name)
+                
+            except PatientExistsError:
+                print("Patient already exists in the database - aborting save to database.")
+                pathlib.Path(UPLOADED_FOLDER_PATH).mkdir(exist_ok=True)
                 pathlib.Path(file).rename(FAILED_FOLDER_PATH / file.name)
 
             except UltraNotHappyError:
@@ -107,14 +138,14 @@ def upload_fhir_to_firestore(db: firestore.client) -> list[PatientInfo] | None:
 
 
 def generate_and_upload(db: firestore.client) -> list[PatientInfo] | None: 
-    """ Generates a number of new fhir documents, parses the relevant patient information 
-    from them, and uploads this information to Firestore 
+    """Generates a number of new fhir documents, parses the relevant patient information 
+    from them, and uploads this information to the database.
 
-    Args: 
-    - db: ``firestore.client``, the client used to communicate with Firestore 
+    Args:
+        db (firestore.client): the database client used to access Firestore
 
-    Returns: 
-    - `None`
+    Returns:
+        list[PatientInfo] | None: a list of successfully uploaded patients. If none are uploaded, returns ``None``
     """
     generate_fhir_docs()
     patients = upload_fhir_to_firestore(db=db)
@@ -122,7 +153,14 @@ def generate_and_upload(db: firestore.client) -> list[PatientInfo] | None:
 
 
 def retrieve_patients(db: firestore.client) -> list[PatientInfo] | None: 
+    """Used to retrieve a number of patients from the database within a given age range.
 
+    Args:
+        db (firestore.client): the database client used to access Firestore
+
+    Returns:
+        list[PatientInfo] | None: a list of successfully retrieved patients. If none are retrieved, returns ``None``
+    """
     try: 
         num_of_patients = int(input("Number of patients to retrieve: "))
         assert num_of_patients > 0
@@ -145,70 +183,40 @@ def retrieve_patients(db: firestore.client) -> list[PatientInfo] | None:
             return patients
 
 
-def upload_from_file(db: firestore.client) -> PatientInfo | None: 
-    path_to_fhir = input("Local path to the fhir json file: ")
-    
-    try:
-        fhir_file = pathlib.Path(path_to_fhir)
-        assert (fhir_file.is_file() and (fhir_file.suffix == ".json"))
-        with open(path_to_fhir, "r") as f:
-            fhir_message = f.read()
+def process_import_folder(db: firestore.client) -> list[PatientInfo] | None:
+    """Used to process all files in the 'import' folder. Each Fhir doc will be read and parsed, 
+    and the patient record therein will be uploaded to the database, contingent on a response of 200
+    from the dummy Ultra server once the corresponding ADT^A01 message is sent. Each HL7 message will be 
+    read and parsed, forwarded to the dummy Ultra server, and then used to update patient records in the 
+    database, provided the dummy Ultra server responds with 200.
 
-            # Parse patient information from file 
-            patient_info = parse_fhir_message(db=db, fhir_message=fhir_message)
-            
-            if not under_document_size_limit(db=db, patient_info=patient_info):
-                        raise DocumentSizeExceededError()
-                    
-            hl7 = create_adt_message(patient_info=patient_info, messageType="ADT_A01")
-            if not hl7:
-                raise Exception()
-            
-            response = forward_to_ultra(hl7_message=hl7)
-            if response != 200:
-                raise UltraNotHappyError()
-            
-            response = save_to_firestore(db=db, patient_info=patient_info)
-            
-    except DocumentSizeExceededError:
-                print("Document holding patient info will exceed Firestore size limit - aborting save to database.")
-                pathlib.Path(FAILED_FOLDER_PATH).mkdir(exist_ok=True)
-                pathlib.Path(fhir_file).rename(FAILED_FOLDER_PATH / fhir_file.name)
-            
-    except UltraNotHappyError:
-                print("Ultra did not successfully receive / process ADT^A01 - aborting save to database.")
-                pathlib.Path(FAILED_FOLDER_PATH).mkdir(exist_ok=True)
-                pathlib.Path(fhir_file).rename(FAILED_FOLDER_PATH / fhir_file.name)
-                
-    except AssertionError as e:
-        print(f"\nAn internal error was encountered: {repr(e)}")
-        print("Returning to main menu. ")
-        
-    except Exception as e: 
-        print(f"\nAn internal error was encountered when attempting to parse and upload the patient information: {repr(e)}")
-        if fhir_file:
-            pathlib.Path(FAILED_FOLDER_PATH).mkdir(exist_ok=True)
-            pathlib.Path(fhir_file).rename(FAILED_FOLDER_PATH / fhir_file.name)
-        
-    else:
-        if response == 200:
-            pathlib.Path(UPLOADED_FOLDER_PATH).mkdir(exist_ok=True)
-            pathlib.Path(fhir_file).rename(UPLOADED_FOLDER_PATH / fhir_file.name)
-            return patient_info
-        else:
-            pathlib.Path(FAILED_FOLDER_PATH).mkdir(exist_ok=True)
-            pathlib.Path(fhir_file).rename(FAILED_FOLDER_PATH / fhir_file.name)
-            return None 
+    Args:
+        db (firestore.client): the database client used to access Firestore
+
+    Returns:
+        list[PatientInfo] | None: all ``PatientInfo`` objects generated during parsing that were successfully received by the 
+                                  Ultra server, and uploaded to the database. If all uploads fail, returns ``None``
+    """
+    patient_list = upload_fhir_to_firestore(db=db, folder_path=IMPORT_FOLDER_PATH)
+    update_patients(db=db)
+    return patient_list
 
 
-def update_patient(db: firestore.client) -> None:
-    path_to_hl7 = input("Local path to the HL7 text file: ")
-    
-    try:
-        hl7_file = pathlib.Path(path_to_hl7)
-        assert (hl7_file.is_file() and (hl7_file.suffix == ".hl7"))
-        with open(path_to_hl7, "r") as f:
-            hl7_message = f.read()
+def update_patients(db: firestore.client) -> None:
+    """Used to read and parse the HL7 messages found in the 'import' folder, forward 
+    them to the dummy Ultra server, and update patients in the database provided the Ultra 
+    server responds with 200. 
+
+    Args:
+        db (firestore.client): the database client used to access Firestore
+
+    Raises:
+        UltraNotHappyError: raised if the dummy Ultra server does not respond with 200
+    """
+    for file in IMPORT_FOLDER_PATH.glob("*.hl7"):
+        try:
+            with open(file, "r") as f:
+                hl7_message = f.read()
 
             # Parse patient information from file 
             hl7_parsed, patient_info = parse_HL7_message(db=db, msg=hl7_message)
@@ -217,27 +225,48 @@ def update_patient(db: firestore.client) -> None:
             response = forward_to_ultra(hl7_message=hl7_parsed)
             if response != 200:
                 raise UltraNotHappyError()
+            else:
+                pathlib.Path(SENT_HL7_PATH).mkdir(exist_ok=True)
+                pathlib.Path(file).rename(SENT_HL7_PATH / file.name)
             
             # Update patient in Firestore database 
             if hl7_parsed.msh.msh_9.to_er7() == "ORM^O01":
                 update_following_ORM_O01(db=db, patient_info=patient_info)
+                    
             elif hl7_parsed.msh.msh_9.to_er7() == "ORU^R01":
                 update_following_ORU_R01(db=db, patient_info=patient_info)
             else: 
-                print("\nSupport for updates only extends to ORM^O01 and ORU^R01 message types. \nReturning to main menu.")
-                
-    except UltraNotHappyError:
-                print("Ultra did not successfully receive / process HL7 message - aborting save to database.")
-           
-    except AssertionError as e:
-        print(f"\nInvalid local path - file must exist and have the extension '.hl7'")
-        print("Returning to main menu. ")
-        
-    except Exception as e: 
-        print(f"\nAn internal error was encountered when attempting to parse and upload the patient information: {repr(e)}")
+                print("\nSupport for updates to the database only extends to ORM^O01 and ORU^R01 message types. ")
+                pathlib.Path(FAILED_HL7_PATH).mkdir(exist_ok=True)
+                pathlib.Path(file).rename(FAILED_HL7_PATH / file.name)
+                    
+        except UltraNotHappyError:
+            print("Ultra did not successfully receive / process HL7 message - aborting save to database.")
+            pathlib.Path(FAILED_HL7_PATH).mkdir(exist_ok=True)
+            pathlib.Path(file).rename(FAILED_HL7_PATH / file.name)
+            
+        except Exception as e: 
+            print(f"\nAn internal error was encountered when attempting to parse and upload the patient information: {repr(e)}")
+            pathlib.Path(FAILED_HL7_PATH).mkdir(exist_ok=True)
+            pathlib.Path(file).rename(FAILED_HL7_PATH / file.name)
 
 
 def forward_to_ultra(hl7_message) -> int: 
+    """Forwards an HL7 message to the dummy Ultra server via the TCP server. Reads the response 
+    from both the TCP server and the dummy Ultra server, and returns an appropriate HTTP response code.
+
+    Args:
+        hl7_message (_type_): a ``hl7apy`` message object
+
+    Raises:
+        Exception: raised if no response is received from the TCP server
+        Exception: raised if the response from the TCP server is not formatted correctly
+        Exception: raised if no response is received from the dummy Ultra server
+        Exception: raised if the response from the dummy Ultra server is not 200
+
+    Returns:
+        int: an appropriate HTTP response code based on the responses from the TCP and dummy Ultra servers
+    """
     try:
         hl7_to_send = hl7_to_string(hl7=hl7_message)
         response = json.loads(send_hl7_message(hl7_message=hl7_to_send))
@@ -262,41 +291,3 @@ def forward_to_ultra(hl7_message) -> int:
         return 400
     else: 
         return 200
-
-
-
-if __name__ == '__main__':
-    db = initialize_firestore()
-#     message = """MSH|^~\&|ULTRA|TEST|ULTRA|NUFFIELD|202408050000||ORM^O01|20240805143850140998|T|2.4|||AL|NE
-# PID|1||SYN0004S^^^^PAS^MR||Stamm704^Cornell131^Leo278||19940101|M|||08733 Gina Crossing^Suite 71^London^^WC2H^GB|||||||149^047GW
-# PV1|1|O|353TD||||^ACON|^ANAESTHETICS CONS^^^^^^L|^ANAESTHETICS CONS^^^^^^^AUSHICPR
-# ORC|O|934ZY|1^^70980^408
-# OBR|1|934ZY|1^^70980^408|R-ANKLE^Ankle X-ray^L||202407310000|202408010000|||||||||WACON^TEST||||||||BI^UHC|||^^^202407290000^^E"""
-
-#     message = """MSH|^~\&|EHR|HOSPITAL|LAB|HOSPITAL|20240808080000||ORM^O01|20240808120000|P|2.4
-# PID|1||DSTRANGE^^^^PAS^MR||Strange^Stephen^V^^Dr.||19751101|M|||177A Bleecker St^^New York^NY^10012||(212)555-1234|||||987-65-4321
-# ORC|NW|123456^LAB|654321^LAB||CM||||20240808080000|789012^Palmer^Christine^J^^Dr.|||||177A Bleecker St^^New York^NY^10012||(212)555-1234
-# OBR|1||123456^LAB|123-4^Liver Function Test^L||20240808080000|||||||||789012^Palmer^Christine^J^^Dr.|||20240808080000|||||||NW
-# """
-
-#     _, patient = parse_HL7_message(msg=message, db=db)
-
-#     update_following_ORM_O01(db=db, patient_info=patient)
-
-#     time.sleep(5)
-
-#     message = """MSH|^~\&|LAB|HOSPITAL|EHR|HOSPITAL|20240808140000||ORU^R01|20240808143000|P|2.4
-# PID|1||DSTRANGE^^^^PAS^MR||Strange^Stephen^V^^Dr.||19751101|M|||177A Bleecker St^^New York^NY^10012||(212)555-1234|||||987-65-4321
-# ORC|RE|123456^LAB|654321^LAB||CM||||20240808080000|789012^Palmer^Christine^J^^Dr.|||||177A Bleecker St^^New York^NY^10012||(212)555-1234
-# OBR|1||123456^LAB|123-4^Liver Function Test^L||20240808080000|20240808120000||||||||789012^Palmer^Christine^J^^Dr.|||20240808120000|||||||F
-# OBX|1|NM|12256-3^Alanine Aminotransferase (ALT)^LN||45|U/L|10-40|H|||F||20240808120000
-# OBX|2|NM|12257-1^Aspartate Aminotransferase (AST)^LN||30|U/L|10-40|N|||F||20240808120000
-# OBX|3|NM|12258-9^Alkaline Phosphatase (ALP)^LN||98|U/L|44-147|N|||F||20240808120000
-# OBX|4|NM|12259-7^Bilirubin^LN||1.2|mg/dL|0.3-1.0|H|||F||20240808120000
-# """
-
-#     _, patient = parse_HL7_message(msg=message, db=db)
-
-#     update_following_ORU_R01(db=db, patient_info=patient)
-
-    

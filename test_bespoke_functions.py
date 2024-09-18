@@ -1,14 +1,16 @@
 import os
 import pathlib
+import time
 import unittest 
 from unittest.mock import patch 
+from user_interface import hl7_message_menu, FIRESTORE_DB
 from bespoke_functions import generate_fhir_docs, BASE_DIR, WORK_FOLDER_PATH, UPLOADED_FOLDER_PATH,\
-    FAILED_FOLDER_PATH, upload_fhir_to_firestore, generate_and_upload, hl7_to_string, retrieve_patients, upload_from_file,\
-        update_patient, forward_to_ultra
+    FAILED_FOLDER_PATH, upload_fhir_to_firestore, generate_and_upload, hl7_to_string, retrieve_patients, \
+        forward_to_ultra, process_import_folder, IMPORT_FOLDER_PATH, HL7_GEN_FOLDER_PATH, SENT_HL7_PATH, FAILED_HL7_PATH
 from poll_synthea.generators.utilities import PatientInfo, parse_HL7_message
-from poll_synthea.main import initialize_firestore, create_orm_message, create_oru_message, HL7MessageProcessor
+from poll_synthea.main import initialize_firestore, create_orm_message, HL7MessageProcessor
 
-FIRESTORE_DB = initialize_firestore()
+# FIRESTORE_DB = initialize_firestore()
 HL7PROCESSOR = HL7MessageProcessor(hl7_folder_path=BASE_DIR/"HL7gen", db=FIRESTORE_DB)
 
 def clear_uploaded_patients():
@@ -33,6 +35,18 @@ def clear_hl7_folder():
     folder = pathlib.Path(BASE_DIR / "HL7gen")
     for item in folder.iterdir():
         item.unlink() 
+        
+        
+def clear_sent_hl7():
+    folder = pathlib.Path(SENT_HL7_PATH)
+    for item in folder.iterdir():
+        item.unlink()
+        
+
+def clear_failed_hl7():
+    folder = pathlib.Path(FAILED_HL7_PATH)
+    for item in folder.iterdir():
+        item.unlink()
 
 
 class Test(unittest.TestCase):
@@ -41,16 +55,16 @@ class Test(unittest.TestCase):
     def test_hl7_to_string(self):
         
         hl7_strings = [
-            """MSH|^~\&|ULTRA|TEST|ULTRA|NUFFIELD|202409100000||ORM^O01|20240910005249913362|T|2.4|||AL|NE
+            """MSH|^~\\&|ULTRA|TEST|ULTRA|NUFFIELD|202409100000||ORM^O01|20240910005249913362|T|2.4|||AL|NE
 PID|1||SYN0003G^^^PAS^MR||Zemlak964^Kevin729^None||2010-01-01|M|||538 Pawling Parkway^Room 677^Birmingham^^B12^GB|||||||069^040AU
 PV1|1|O|550DL||||^ACON|^ANAESTHETICS CONS^^^^^^L|^ANAESTHETICS CONS^^^^^^^AUSHICPR
 ORC|O|PL-14149ac6-7105-4e8d-92f5-31c325a16e6e|FL-0b41dd57-9236-4238-90fa-de1253cd9305
 OBR|1|PL-14149ac6-7105-4e8d-92f5-31c325a16e6e|FL-0b41dd57-9236-4238-90fa-de1253cd9305|R-ANKLE^Ankle X-ray^L||202409060000|202409030000|||||||||WACON^TEST||||||||BI^UHC|||^^^202409060000^^E""",
-            """MSH|^~\&|ULTRA|TEST|ULTRA|NUFFIELD|202409110000||ADT^A01|20240911194204257448|T|2.4|||AL|NE
+            """MSH|^~\\&|ULTRA|TEST|ULTRA|NUFFIELD|202409110000||ADT^A01|20240911194204257448|T|2.4|||AL|NE
 EVN|A01|202409080000
 PID|1||SYN0000O^^^PAS^MR||Cummerata161^Clement78^Nicky270||2014-01-01|M|||2623 Village Trail^Room 378^Upton^^WF9^GB|||||||611^690XZ
 PV1|1|O|085JG||||^ACON|^ANAESTHETICS CONS^^^^^^L|^ANAESTHETICS CONS^^^^^^^AUSHICPR""",
-            """MSH|^~\&|ULTRA|TEST|ULTRA|NUFFIELD|202409110000||ORU^R01|20240911200034776395|T|2.4|||AL|NE
+            """MSH|^~\\&|ULTRA|TEST|ULTRA|NUFFIELD|202409110000||ORU^R01|20240911200034776395|T|2.4|||AL|NE
 PID|1||SYN0000O^^^PAS^MR||Cummerata161^Clement78^Nicky270||2014-01-01|M|||2623 Village Trail^Room 378^Upton^^WF9^GB|||||||040^384HT
 PV1|1|O|700AM||||^ACON|^ANAESTHETICS CONS^^^^^^L|^ANAESTHETICS CONS^^^^^^^AUSHICPR
 ORC|O|PL-301f7880-a8ef-41ab-8be6-be15ea46c996|FL-2e7e7f4d-ae3e-4050-a094-32a0a13b69ab
@@ -248,64 +262,94 @@ OBX|1|TX|R-ANKLE^Ankle X-ray^L||Normal findings, no fracture detected||||||F"""
                 
                 self.assertIsNone(patient_list)
         
-
+    
     @patch('builtins.input')
-    def test_upload_from_file(self, mock_input):
-        
-        clear_work_folder()
-        
-        valid_test_cases = [
-            ['3', '10', '80', 'M'],
-            ['3', '30', '30', 'F'],
-            ['3', '1', '99', 'M']
+    def test_process_import_folder(self, mock_input):
+        """Test the ``process_import_folder`` function with sample inputs. Currently only 
+        testing for the processing of fhir docs.
+
+        Args:
+            mock_input(unittest.mock.MagicMock): Used to substitute variables for user input. Generated as a result of the ``@patch`` decorator.
+        """
+        inputs = [
+            ['3', '10', '80', 'M', '3', '10', '80', '2'],
+            ['3', '30', '50', 'F', '3', '30', '50', '3'],
+            ['3', '60', '80', 'M', '3', '60', '80', '2']
         ]
-        
-        for inputs in valid_test_cases:
-            
+
+        for inputs in inputs:
             with self.subTest(inputs=inputs):
-                mock_input.side_effect = inputs
                 
+                clear_work_folder()
+                clear_hl7_folder()
+                clear_uploaded_patients()
+                clear_failed_patients()
+                clear_sent_hl7()
+                clear_failed_hl7()
+                
+                # -------------- SETUP --------------
+                
+                # Generate fhir docs and place in import folder
+                
+                mock_input.side_effect = inputs 
                 generate_fhir_docs()
                 
+                time.sleep(0.2)
+                
+                generated_fhir_num = len([name for name in os.listdir(WORK_FOLDER_PATH)])
+                
+                time.sleep(0.2)
+                
+                # Move generated Fhir docs to the import folder 
                 for file in WORK_FOLDER_PATH.glob("*.json"):
+                    pathlib.Path(IMPORT_FOLDER_PATH).mkdir(exist_ok=True)
+                    pathlib.Path(file).rename(IMPORT_FOLDER_PATH / file.name)
                     
-                    uploaded_count = len([name for name in os.listdir(UPLOADED_FOLDER_PATH)])
+                # Generate HL7 messages
+                patients = retrieve_patients(db=FIRESTORE_DB)
+                hl7_message_menu(patients=patients)
+                
+                time.sleep(0.2)
+                
+                generated_hl7_num = len([name for name in os.listdir(HL7_GEN_FOLDER_PATH)])
+                
+                time.sleep(0.2)
+                
+                # Move generated HL7 messages to the import folder 
+                for file in HL7_GEN_FOLDER_PATH.glob("*.hl7"):
+                    pathlib.Path(IMPORT_FOLDER_PATH).mkdir(exist_ok=True)
+                    pathlib.Path(file).rename(IMPORT_FOLDER_PATH / file.name)
                     
-                    mock_input.side_effect = [str(WORK_FOLDER_PATH / file.name)]
+                time.sleep(0.2)
                     
-                    patient = upload_from_file(db=FIRESTORE_DB)
-                    
-                    new_uploaded_count = len([name for name in os.listdir(UPLOADED_FOLDER_PATH)])
-                    
-                    if patient:
-                        self.assertTrue(type(patient) == PatientInfo)
-                        self.assertTrue(uploaded_count + 1 == new_uploaded_count)
-    
-    
-    @patch("builtins.input")
-    def test_update_patient(self, mock_input):
-        
-        clear_hl7_folder()
-        
-        # Write more test cases - how to prove this function works? 
-        request = ['1', '10', '80']
-        
-        mock_input.side_effect = request
-        patient_list = retrieve_patients(db=FIRESTORE_DB)
-        
-        self.assertIsNotNone(patient_list)
-        patient_info = patient_list[0]
-        
-        orm = create_orm_message(patient_info=patient_info, messageType="ORM_O01")
-        HL7PROCESSOR.save_hl7_message_to_file(hl7_message=orm, patient_id=patient_info.id)
-        
-        oru = create_oru_message(patient_info=patient_info, messageType="ORU_R01")
-        HL7PROCESSOR.save_hl7_message_to_file(hl7_message=oru, patient_id=patient_info.id)
-        
-        for file in (BASE_DIR / "HL7gen").glob("*.json"):
-            mock_input.side_effect = [str(BASE_DIR / "HL7gen" / file.name)]
-            
-            update_patient(db=FIRESTORE_DB)
+                # ------------ SETUP END ------------
+                
+                total_to_import = len([name for name in os.listdir(IMPORT_FOLDER_PATH)])
+                self.assertEqual(total_to_import, generated_fhir_num + generated_hl7_num)
+                
+                # Calling the function we want to test
+                patients = process_import_folder(db=FIRESTORE_DB)
+                
+                left_to_import = len([name for name in os.listdir(IMPORT_FOLDER_PATH)])
+                uploaded_fhir_num = len([name for name in os.listdir(UPLOADED_FOLDER_PATH)])
+                failed_fhir_num = len([name for name in os.listdir(FAILED_FOLDER_PATH)])
+                sent_hl7_num = len([name for name in os.listdir(SENT_HL7_PATH)])
+                failed_hl7_num = len([name for name in os.listdir(FAILED_HL7_PATH)])
+                
+                # Check that all files in the import folder have been addressed 
+                self.assertEqual(0, left_to_import)
+                
+                # Check that each fhir doc has been moved to the correct location
+                self.assertEqual(generated_fhir_num, uploaded_fhir_num + failed_fhir_num)
+                
+                # Check that the uploaded patients have been returned as patient objects
+                self.assertEqual(len(patients), uploaded_fhir_num)
+                
+                # Check that each hl7 file has been moved to the correct location
+                self.assertEqual(generated_hl7_num, sent_hl7_num + failed_hl7_num)
+                
+                
+                
     
     # How to test server function? 
     # - function tests the reception of messages anyway...?

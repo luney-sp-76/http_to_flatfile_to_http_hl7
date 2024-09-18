@@ -1,8 +1,8 @@
 import socket
 import ssl
 import time
-from bespoke_functions import generate_and_upload, retrieve_patients, upload_from_file, update_patient, generate_fhir_docs,\
-    forward_to_ultra, upload_fhir_to_firestore
+from bespoke_functions import generate_and_upload, retrieve_patients, generate_fhir_docs, upload_fhir_to_firestore, \
+    process_import_folder, IMPORT_FOLDER_PATH
 from poll_synthea.main import initialize_firestore, create_orm_message, create_adt_message, create_oru_message, HL7MessageProcessor
 from poll_synthea.generators.utilities import PatientInfo
 from client import send_hl7_to_server
@@ -138,12 +138,10 @@ def main_menu() -> None:
     print("1: Generate fhir docs and store in the 'work' folder")
     print("2: Upload all patients in the 'work' folder to the database")
     print("3: Generate new patients and upload to database")
-    print("4: Extract and upload patient information from a specific Fhir file (.json)")
-    print("5: Update a patient in the database with a specific HL7 message file (.hl7)")
-    print("6: Retrieve patients from the database within a given age range")
-    print("7: Clear the 'Work' folder, removing all fhir patient records")
-    print("8: Clear the 'HL7gen' folder, removing all hl7 messages")
-    print("9: Exit")
+    print("4: Import Fhir and HL7 files in the 'import' folder")
+    print("5: Retrieve patients from the database within a given age range")
+    print("6: Clear the 'Work' folder, removing all fhir patient records")
+    print("7: Exit")
 
 
 def hl7_message_menu(patients: list[PatientInfo]) -> None: 
@@ -206,6 +204,7 @@ def hl7_message_menu(patients: list[PatientInfo]) -> None:
 
 if __name__ == '__main__':
     check_server_status()
+    pathlib.Path(IMPORT_FOLDER_PATH).mkdir(exist_ok=True)
     exit = False 
     while not exit:
         main_menu()
@@ -225,23 +224,17 @@ if __name__ == '__main__':
                 hl7_message_menu(patients=patients)
             
         elif choice == "4":
-            patient_info = upload_from_file(db=FIRESTORE_DB)
-            if patient_info: hl7_message_menu(patients=[patient_info])
-            
-        elif choice == "5":
-            update_patient(db=FIRESTORE_DB)
+            patients = process_import_folder(db=FIRESTORE_DB)
+            if patients: hl7_message_menu(patients=patients)
 
-        elif choice == "6": 
+        elif choice == "5": 
             patients = retrieve_patients(db=FIRESTORE_DB)
             if patients: hl7_message_menu(patients=patients)
             
-        elif choice == "7":
+        elif choice == "6":
             clear_work_folder()
-            
-        elif choice == "8":
-            clear_hl7_folder()
 
-        elif choice == "9": 
+        elif choice == "7": 
             print("Goodbye.")
             exit = True
             
