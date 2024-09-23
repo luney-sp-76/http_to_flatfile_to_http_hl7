@@ -9,6 +9,7 @@ from client import send_hl7_to_server
 import os, os.path
 import pathlib 
 import glob
+import subprocess
 
 # Server details 
 SERVER_HOST = 'localhost'
@@ -17,6 +18,9 @@ TCP_SERVER_HOST = 'localhost'
 TCP_SERVER_PORT = 8081
 DUMMY_ULTRA_HOST = 'localhost'
 DUMMY_ULTRA_PORT = 8082
+
+# Server processes 
+SERVER_PROCESSES = []
 
 # Global firestore client
 FIRESTORE_DB = initialize_firestore()
@@ -77,6 +81,33 @@ def clear_hl7_folder():
         print("HL7 folder cleared.")
     else:
         print("Action aborted.")
+
+
+def start_servers(show_servers:bool=False):
+    print("Starting servers...")
+    servers = ['.\\server.py', '.\\tcp_server.py', '.\\dummy_ultra.py']
+    
+    if not show_servers:
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW  # Hide the window
+        for server in servers:
+            proc = subprocess.Popen(f'py {server}', startupinfo=startupinfo, creationflags=subprocess.CREATE_NO_WINDOW)
+            SERVER_PROCESSES.append(proc)
+    else:
+        for server in servers:
+            proc = subprocess.Popen(f'start py {server}', shell=True, stdin=None, stdout=None, stderr=None)
+            SERVER_PROCESSES.append(proc)
+    time.sleep(5)
+    print("Servers started.")
+
+
+def stop_servers():
+    print("Stopping servers...")
+    for proc in SERVER_PROCESSES:
+        if proc.poll() is None:  # None means the process is still running
+            print(f"Terminating process {proc.pid}")
+            proc.terminate()  # Use terminate to gracefully stop the process
+            proc.wait()  # Wait for it to fully exit
 
 
 def check_server_status() -> None:
@@ -203,6 +234,7 @@ def hl7_message_menu(patients: list[PatientInfo]) -> None:
 
 
 if __name__ == '__main__':
+    start_servers()
     check_server_status()
     pathlib.Path(IMPORT_FOLDER_PATH).mkdir(exist_ok=True)
     exit = False 
@@ -235,6 +267,7 @@ if __name__ == '__main__':
             clear_work_folder()
 
         elif choice == "7": 
+            stop_servers()
             print("Goodbye.")
             exit = True
             
