@@ -1,11 +1,12 @@
 import json
 import pathlib
 from firebase_admin import firestore
-from poll_synthea.generators.utilities import PatientInfo, call_for_patients, \
+from poll_synthea.generators.utilities import PatientInfo, call_for_patients, modify_for_age_range, \
     parse_fhir_message, patient_exists, save_to_firestore, parse_HL7_message, update_following_ORM_O01, \
     update_following_ORU_R01, get_firestore_age_range, under_document_size_limit
 from poll_synthea.main import initialize_firestore, create_adt_message
 from tcp_client import send_hl7_message
+import random
 
 # Paths 
 BASE_DIR = pathlib.Path.cwd()
@@ -35,24 +36,33 @@ def hl7_to_string(hl7) -> str:
     return converted_hl7[:-1]
 
 
-def generate_fhir_docs() -> None: 
+def generate_fhir_docs(num_of_patients:int=None, age_lower:int=None, age_upper:int=None, sex:str=None) -> None: 
     '''Generates ``x`` fhir documents and places them in the ``Work`` folder. 
     '''
     try: 
-        num_of_patients = int(input("Number of patients to generate: "))
+        if not num_of_patients:
+            num_of_patients = int(input("Number of patients to generate: "))
         if num_of_patients < 1:
             raise Exception
-        age_lower = int(input("Minimum patient age: "))
+        
+        if not age_lower:
+            age_lower = int(input("Minimum patient age: "))
         if age_lower < 0:
             raise Exception
-        age_upper = int(input("Maximum patient age: "))
+        
+        if not age_upper:
+            age_upper = int(input("Maximum patient age: "))
         if age_upper < age_lower:
             raise Exception
-        sex = input("Sex of patients (M/F): ")
+        
+        if not sex:
+            sex = input("Sex of patients (M/F): ")
         if (sex != "M") and (sex != "F"):
             raise Exception
+        
     except Exception: 
         print("Invalid input - returning to main menu. ")
+        
     else:
         info = {
             "number_of_patients": num_of_patients,
@@ -137,7 +147,7 @@ def upload_fhir_to_firestore(db: firestore.client, folder_path:pathlib.Path=WORK
     return patient_list
 
 
-def generate_and_upload(db: firestore.client) -> list[PatientInfo] | None: 
+def generate_and_upload(db: firestore.client, num_of_patients:int=None, age_lower:int=None, age_upper:int=None, sex:str=None) -> list[PatientInfo] | None: 
     """Generates a number of new fhir documents, parses the relevant patient information 
     from them, and uploads this information to the database.
 
@@ -147,7 +157,7 @@ def generate_and_upload(db: firestore.client) -> list[PatientInfo] | None:
     Returns:
         list[PatientInfo] | None: a list of successfully uploaded patients. If none are uploaded, returns ``None``
     """
-    generate_fhir_docs()
+    generate_fhir_docs(num_of_patients=num_of_patients, age_lower=age_lower, age_upper=age_upper, sex=sex)
     patients = upload_fhir_to_firestore(db=db)
     return patients
 
@@ -175,12 +185,47 @@ def retrieve_patients(db: firestore.client) -> list[PatientInfo] | None:
     else: 
         try: 
             patients = get_firestore_age_range(db=db, num_of_patients=num_of_patients, lower=lower, upper=upper, peter_pan=True)
+            while type(patients) == int:
+                random_number = random.randint(0,1)
+                sex = "F" if random_number == 0 else "M"
+                _ = generate_and_upload(db=db, num_of_patients=patients, age_lower=lower, age_upper=upper, sex=sex)
+                patients = get_firestore_age_range(db=db, num_of_patients=num_of_patients, lower=lower, upper=upper, peter_pan=True)
+                
         except Exception as e: 
             print("\nAn error was encountered during the retrieval of patients.", repr(e))
             print("Returning to main menu. ")
         else: 
             print(f"{len(patients)} patients successfully retrieved.")
-            return patients
+            print("Selecting appropriate HL7 IDs...")
+            try:
+                for patient in patients:
+                    patient:PatientInfo
+                    prior_max_id = patient.max_hl7v2_id
+                    patient = modify_for_age_range(db=db, patient_info=patient, lower=lower, upper=upper)
+                    post_max_id = patient.max_hl7v2_id
+                    
+                    if prior_max_id != post_max_id:
+                        print(f"No existing ID found for patient {patient.id} - generating new HL7v2 id...")
+                        hl7 = create_adt_message(patient_info=patient, messageType="ADT_A01")
+                        if not hl7:
+                            raise Exception("Malformed HL7 message")
+                        response = forward_to_ultra(hl7_message=hl7)
+                        if response != 200:
+                            raise UltraNotHappyError()
+                        response = save_to_firestore(db=db, patient_info=patient, update_record=True)
+                        if response != 200:
+                            raise Exception("Unable to save info to the database")
+                    
+            except UltraNotHappyError as e:
+                print("Ultra did not successfully receive / process ADT^A01 - aborting save to database and retrieval of patients.")
+                return None
+            
+            except Exception as e:
+                print(f"Failed to assign IDs - {repr(e)}")
+                return None
+            
+            else:
+                return patients
 
 
 def process_import_folder(db: firestore.client) -> list[PatientInfo] | None:
