@@ -247,18 +247,19 @@ def process_import_folder(db: firestore.client) -> list[PatientInfo] | None:
     return patient_list
 
 
-def update_patients(db: firestore.client) -> None:
+def update_patients(db: firestore.client, folder_path: pathlib.Path=IMPORT_FOLDER_PATH) -> None:
     """Used to read and parse the HL7 messages found in the 'import' folder, forward 
     them to the dummy Ultra server, and update patients in the database provided the Ultra 
     server responds with 200. 
 
     Args:
         db (firestore.client): the database client used to access Firestore
+        folder_path (pathlib.Path): the folder to check for HL7 messages
 
     Raises:
         UltraNotHappyError: raised if the dummy Ultra server does not respond with 200
     """
-    for file in IMPORT_FOLDER_PATH.glob("*.hl7"):
+    for file in folder_path.glob("*.hl7"):
         try:
             with open(file, "r") as f:
                 hl7_message = f.read()

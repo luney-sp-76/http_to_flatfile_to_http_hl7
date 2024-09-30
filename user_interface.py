@@ -2,7 +2,7 @@ import socket
 import ssl
 import time
 from bespoke_functions import generate_and_upload, retrieve_patients, generate_fhir_docs, upload_fhir_to_firestore, \
-    process_import_folder, IMPORT_FOLDER_PATH
+    process_import_folder, IMPORT_FOLDER_PATH, update_patients
 from poll_synthea.main import initialize_firestore, create_orm_message, create_adt_message, create_oru_message, HL7MessageProcessor
 from poll_synthea.generators.utilities import PatientInfo
 from client import send_hl7_to_server
@@ -167,9 +167,10 @@ def main_menu() -> None:
     """
     print("\nSelect a number from the menu below.")
     print("1: Generate fhir docs and store in the 'work' folder")
-    print("2: Upload all patients in the 'work' folder to the database")
+    # Need to reword this
+    print("2: Upload all fhir patient docs in the 'work' folder to the database")
     print("3: Generate new patients and upload to database")
-    print("4: Import Fhir and HL7 files in the 'import' folder")
+    print("4: Import Fhir and HL7 files found in the 'import' folder")
     print("5: Retrieve patients from the database within a given age range")
     print("6: Clear the 'Work' folder, removing all fhir patient records")
     print("7: Exit")
@@ -179,31 +180,19 @@ def hl7_message_menu(patients: list[PatientInfo]) -> None:
     """ Displays messages that may be generated using present patient information
     """
     
-    print("\nSelect a number from the menu below.\nGenerated HL7 messages are stored in the 'HL7gen' folder.")
-    print("1: Generate ADT^A01 message(s)")
-    print("2: Generate ORM^O01 message(s)")
-    print("3: Generate ORU^R01 message(s)")
-    print("4: No further action")
+    print("\nSelect a number from the menu below.")
+    print("1: Generate ORM^O01 message(s)")
+    print("2: Generate ORU^R01 message(s)")
+    print("3: No further action")
 
     choice = input("\n: ")
     if choice == "1": 
-        for patient in patients: 
-            try:
-                hl7 = create_adt_message(patient_info=patient, messageType="ADT_A01")
-
-                # Perform action here - could be save to flatfile, send to Ultra, etc.
-                HL7_PROCESSOR.save_hl7_message_to_file(hl7_message=hl7, patient_id=patient.id)
-                # forward_to_ultra(hl7_message=hl7)
-            except Exception as e: 
-                print(f"Message generation for patient {patient.id} failed: {repr(e)}")
-            else:
-                print(f"Message for patient {patient.id} generated successfully")
-
-    elif choice == "2": 
+        # Generate HL7 messages
         for patient in patients: 
             try: 
                 hl7 = create_orm_message(patient_info=patient, messageType="ORM_O01")
-
+                if not hl7:
+                    raise Exception("Error encountered during message construction")
                 # Perform action here - could be save to flatfile, send to Ultra, etc.
                 HL7_PROCESSOR.save_hl7_message_to_file(hl7_message=hl7, patient_id=patient.id)
                 # forward_to_ultra(hl7_message=hl7)
@@ -211,12 +200,16 @@ def hl7_message_menu(patients: list[PatientInfo]) -> None:
                 print(f"Message generation for patient {patient.id} failed: {repr(e)}")
             else:
                 print(f"Message for patient {patient.id} generated successfully")
+        # Send HL7 messages to Ultra 
+        update_patients(db=FIRESTORE_DB, folder_path=HL7_FOLDER_PATH)
 
-    elif choice == "3": 
+    elif choice == "2": 
+        # Generate HL7 messages
         for patient in patients: 
             try:
                 hl7 = create_oru_message(patient_info=patient, messageType="ORU_R01")
-
+                if not hl7:
+                    raise Exception("Error encountered during message construction")
                 # Perform action here - could be save to flatfile, send to Ultra, etc.
                 HL7_PROCESSOR.save_hl7_message_to_file(hl7_message=hl7, patient_id=patient.id)
                 # forward_to_ultra(hl7_message=hl7)
@@ -224,8 +217,10 @@ def hl7_message_menu(patients: list[PatientInfo]) -> None:
                 print(f"Message generation for patient {patient.id} failed: {repr(e)}")
             else:
                 print(f"Message for patient {patient.id} generated successfully")
-
-    elif choice == "4": 
+        # Send HL7 messages to Ultra 
+        update_patients(db=FIRESTORE_DB, folder_path=HL7_FOLDER_PATH)
+        
+    elif choice == "3": 
         pass 
 
     else: 
@@ -248,20 +243,26 @@ if __name__ == '__main__':
         if choice == "2":
             patients = upload_fhir_to_firestore(db=FIRESTORE_DB)
             if patients:
+                print("\nThe following options may be selected to update the patient record, in both Ultra and the database.\n")
                 hl7_message_menu(patients=patients)
         
         elif choice == "3": 
             patients = generate_and_upload(db=FIRESTORE_DB)
             if patients: 
+                print("\nThe following options may be selected to update the patient record, in both Ultra and the database.\n")
                 hl7_message_menu(patients=patients)
             
         elif choice == "4":
             patients = process_import_folder(db=FIRESTORE_DB)
-            if patients: hl7_message_menu(patients=patients)
+            if patients: 
+                print("\nThe following options may be selected to update the patient record, in both Ultra and the database.\n")
+                hl7_message_menu(patients=patients)
 
         elif choice == "5": 
             patients = retrieve_patients(db=FIRESTORE_DB)
-            if patients: hl7_message_menu(patients=patients)
+            if patients: 
+                print("\nThe following options may be selected to update the patient record, in both Ultra and the database.\n")
+                hl7_message_menu(patients=patients)
             
         elif choice == "6":
             clear_work_folder()
