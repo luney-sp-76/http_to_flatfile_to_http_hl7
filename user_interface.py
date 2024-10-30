@@ -2,7 +2,7 @@ import socket
 import ssl
 import time
 from bespoke_functions import generate_and_upload, retrieve_patients, generate_fhir_docs, upload_fhir_to_firestore, \
-    process_import_folder, IMPORT_FOLDER_PATH, update_patients
+    process_import_folder, IMPORT_FOLDER_PATH, update_patients, retrieve_patient_by_name, show_created_patients
 from poll_synthea.main import initialize_firestore, create_orm_message, create_adt_message, create_oru_message, HL7MessageProcessor
 from poll_synthea.generators.utilities import PatientInfo
 from client import send_hl7_to_server
@@ -171,14 +171,18 @@ def main_menu() -> None:
     print("2: Upload all fhir patient docs in the 'work' folder to the database")
     print("3: Generate new patients and upload to database")
     print("4: Import Fhir and HL7 files found in the 'import' folder")
-    print("5: Retrieve patients from the database within a given age range")
-    print("6: Clear the 'Work' folder, removing all fhir patient records")
-    print("7: Exit")
+    print("5: Show names, genders, and number of HL7 IDs associated with all uploaded patients")
+    print("6: Retrieve patients from the database within a given age range")
+    print("7: Search for and retrieve a patient by first and last name")
+    print("8: Clear the 'Work' folder, removing all fhir patient records")
+    print("9: Exit")
 
 
 def hl7_message_menu(patients: list[PatientInfo]) -> None: 
     """ Displays messages that may be generated using present patient information
     """
+    
+    print("\nThe following options may be selected to update the patient record, in both Ultra and the database.")
     
     print("\nSelect a number from the menu below.")
     print("1: Generate ORM^O01 message(s)")
@@ -243,31 +247,35 @@ if __name__ == '__main__':
         if choice == "2":
             patients = upload_fhir_to_firestore(db=FIRESTORE_DB)
             if patients:
-                print("\nThe following options may be selected to update the patient record, in both Ultra and the database.\n")
                 hl7_message_menu(patients=patients)
         
         elif choice == "3": 
             patients = generate_and_upload(db=FIRESTORE_DB)
             if patients: 
-                print("\nThe following options may be selected to update the patient record, in both Ultra and the database.\n")
                 hl7_message_menu(patients=patients)
             
         elif choice == "4":
             patients = process_import_folder(db=FIRESTORE_DB)
-            if patients: 
-                print("\nThe following options may be selected to update the patient record, in both Ultra and the database.\n")
+            if patients:
                 hl7_message_menu(patients=patients)
+                
+        elif choice == "5":
+            show_created_patients(db=FIRESTORE_DB)
 
-        elif choice == "5": 
+        elif choice == "6": 
             patients = retrieve_patients(db=FIRESTORE_DB)
             if patients: 
-                print("\nThe following options may be selected to update the patient record, in both Ultra and the database.\n")
+                hl7_message_menu(patients=patients)
+                
+        elif choice == "7":
+            patients = retrieve_patient_by_name(db=FIRESTORE_DB)
+            if patients:
                 hl7_message_menu(patients=patients)
             
-        elif choice == "6":
+        elif choice == "8":
             clear_work_folder()
 
-        elif choice == "7": 
+        elif choice == "9": 
             stop_servers()
             print("Goodbye.")
             exit = True

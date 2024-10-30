@@ -3,7 +3,8 @@ import pathlib
 from firebase_admin import firestore
 from poll_synthea.generators.utilities import PatientInfo, call_for_patients, modify_for_age_range, \
     parse_fhir_message, patient_exists, save_to_firestore, parse_HL7_message, update_following_ORM_O01, \
-    update_following_ORU_R01, get_firestore_age_range, under_document_size_limit
+    update_following_ORU_R01, get_firestore_age_range, under_document_size_limit, retrieve_firestore_patients_by_name, calculate_age, \
+    retrieve_all_patient_records, firestore_doc_to_patient_info
 from poll_synthea.main import initialize_firestore, create_adt_message
 from tcp_client import send_hl7_message
 import random
@@ -226,6 +227,59 @@ def retrieve_patients(db: firestore.client) -> list[PatientInfo] | None:
             
             else:
                 return patients
+
+
+def show_created_patients(db: firestore.client) -> None:
+    
+    print("All existing patient names, sexes, and associated HL7 IDs are shown below: \n")
+    
+    all_records = retrieve_all_patient_records(db=db)
+    for record in all_records:
+        patient_info = firestore_doc_to_patient_info(db=db, doc=record)
+        print(f"- {patient_info.first_name} {patient_info.last_name}, {patient_info.gender}, with {len(patient_info.hl7v2_id.values())} associated HL7 IDs.")
+
+
+def retrieve_patient_by_name(db: firestore.client) -> list[PatientInfo] | None:
+    
+    patient_first_name = str(input("Patient first name: "))
+    patient_last_name = str(input("Patient last name: "))
+    
+    matching_patients = retrieve_firestore_patients_by_name(db=db, first_name=patient_first_name, last_name=patient_last_name)
+    
+    if matching_patients:
+        print("Matching patients: ")
+        for index, patient in enumerate(matching_patients):
+            print(f"\n{index + 1}. {patient.first_name} {patient.last_name}")
+            print("HL7 IDs: ")
+            for key, value in patient.hl7v2_id.items():
+                print(f"- {key} (age {calculate_age(key)}): {value}")
+    else: 
+        print("No matching patients found - returning to main menu.")
+        return None 
+    
+    chosen_patient_number = int(input("\nTo select a patient, input their number as seen in the listing. \nPatient number: "))
+    if len(matching_patients) >= chosen_patient_number:
+        chosen_patient = matching_patients[chosen_patient_number - 1]
+    else:
+        print("Invalid selection - returing to main menu.")
+        return None
+    
+    print(f"\nChosen patient: {chosen_patient.first_name} {chosen_patient.last_name}")
+    
+    print("HL7 ids: ")
+    for index, (key, value) in enumerate(chosen_patient.hl7v2_id.items()):
+        print(f"{index+1}.  {key} (age {calculate_age(key)}): {value}")
+    
+    chosen_patient_HL7_id_number = int(input("\nTo select a patient HL7 ID to use, input its number as seen in the listing. \nHL7 number: "))
+    if len(chosen_patient.hl7v2_id) >= chosen_patient_HL7_id_number:
+        chosen_HL7_id_key = list(chosen_patient.hl7v2_id.keys())[chosen_patient_HL7_id_number - 1]
+        print(f"\nChosen HL7 id: {chosen_patient.hl7v2_id[chosen_HL7_id_key]}")
+    else: 
+        print("Invalid selection - returning to main menu.")
+        
+    # Set patient age to match the chosen HL7 id, and then pass forward to other functions (return patient)
+    chosen_patient = modify_for_age_range(db=db, patient_info=chosen_patient, lower=calculate_age(chosen_HL7_id_key), upper=calculate_age(chosen_HL7_id_key))
+    return [chosen_patient]
 
 
 def process_import_folder(db: firestore.client) -> list[PatientInfo] | None:
