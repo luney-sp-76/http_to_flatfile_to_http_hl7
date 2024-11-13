@@ -1,3 +1,4 @@
+import random
 import socket
 import ssl
 import time
@@ -33,29 +34,6 @@ WORK_FOLDER_PATH = BASE_DIR / "Work"
 # HL7 processor
 HL7_PROCESSOR = HL7MessageProcessor(hl7_folder_path=HL7_FOLDER_PATH, db=FIRESTORE_DB)
 
-"""
-SCHEMA
-
-------------------------------------------------------------
-What functionality should be offered to the user? 
-
-- Retrieve patients from Firestore within a certain age range 
-    - Storage of these patients locally? 
-
-- Generate new patients, and choose whether or not to upload them to Firestore 
-
-- Generate ADT, ORM^O01, and ORU^R01 messages 
-    - Forward these to the remote server
-    - Save them locally in a text file 
-
-------------------------------------------------------------
-
-What functionality should be going on in the background? 
-
-- Reception of messages from other sources, and resulting updates of Firestore 
-
-------------------------------------------------------------
-"""
 
 def clear_work_folder():
     
@@ -182,54 +160,112 @@ def hl7_message_menu(patients: list[PatientInfo]) -> None:
     """ Displays messages that may be generated using present patient information
     """
     
-    print("\nThe following options may be selected to update the patient record, in both Ultra and the database.")
+    # List of tuples with each tuple containing a panel code and corresponding description
+    panel_list = [
+        ("17K", "17-KETOSTEROIDS (URINARY)", 5, 25, "mg/24hr"),
+        ("17O", "17 ALPHA OH PROG", 20, 100, "ng/dL"),
+        ("17P", "17 ALPHA OH PROG - SPS", 20, 100, "ng/dL"),
+        ("5NT", "5 NUCLEOTIDASE", 0, 11, "U/L"),
+        ("A1A", "ALPHA 1 ANTITRYPSIN STOOL", 1.5, 3.5, "g/L"),
+        ("ACA", "ACYL-CARNITINE", 10, 60, "µmol/L"),
+        ("ACT", "ACTH", 10, 60, "pg/mL"),
+        ("ACU", "ALCOHOL SCREEN - URINE", 0, 400, "mg/dL"),  # Negative or variable if positive
+        ("AFA", "AFP (AMNIOTIC FLUID)", 0, 500, "ng/mL"),  # Ranges depend on pregnancy stage and lab
+        ("AFM", "AFP (MATERNAL)", 10, 150, "ng/mL"),
+        ("AGP", "A1 ACID GLYCOPROTEIN", 0.4, 1.2, "g/L"),
+        ("ALD", "ALDOSTERONE", 3, 30, "ng/dL"),
+        ("ALI", "ALP. PHOS. ISOENZYMES", 44, 147, "U/L"),  # Total ALP range, isoenzymes vary
+        ("ALO", "ALDOLASE", 1.0, 7.5, "U/L"),
+        ("ATM", "ACTIVATED CLOTTING TIME +", 80, 120, "seconds"),
+        ("HYC", "17-HYDROXYCORTICOSTEROIDS", 3, 12, "mg/24hr"),
+        ("PCR", "ACT. PROTEIN C RESISTANCE", 1.0, 5.0, "Ratio"),  # Ratio with no upper bound in standard labs
+        ("SAP", "ACID PHOSPHATASE", 0, 3.5, "ng/mL"),
+        ("VD3", "1 25 DIHYDROXY VITAMIN D3", 20, 65, "pg/mL")
+    ]
+
     
-    print("\nSelect a number from the menu below.")
-    print("1: Generate ORM^O01 message(s)")
-    print("2: Generate ORU^R01 message(s)")
-    print("3: No further action")
-
-    choice = input("\n: ")
-    if choice == "1": 
-        # Generate HL7 messages
-        for patient in patients: 
-            try: 
-                hl7 = create_orm_message(patient_info=patient, messageType="ORM_O01")
-                if not hl7:
-                    raise Exception("Error encountered during message construction")
-                # Perform action here - could be save to flatfile, send to Ultra, etc.
-                HL7_PROCESSOR.save_hl7_message_to_file(hl7_message=hl7, patient_id=patient.id)
-                # forward_to_ultra(hl7_message=hl7)
-            except Exception as e: 
-                print(f"Message generation for patient {patient.id} failed: {repr(e)}")
-            else:
-                print(f"Message for patient {patient.id} generated successfully")
-        # Send HL7 messages to Ultra 
-        update_patients(db=FIRESTORE_DB, folder_path=HL7_FOLDER_PATH)
-
-    elif choice == "2": 
-        # Generate HL7 messages
-        for patient in patients: 
-            try:
-                hl7 = create_oru_message(patient_info=patient, messageType="ORU_R01")
-                if not hl7:
-                    raise Exception("Error encountered during message construction")
-                # Perform action here - could be save to flatfile, send to Ultra, etc.
-                HL7_PROCESSOR.save_hl7_message_to_file(hl7_message=hl7, patient_id=patient.id)
-                # forward_to_ultra(hl7_message=hl7)
-            except Exception as e: 
-                print(f"Message generation for patient {patient.id} failed: {repr(e)}")
-            else:
-                print(f"Message for patient {patient.id} generated successfully")
-        # Send HL7 messages to Ultra 
-        update_patients(db=FIRESTORE_DB, folder_path=HL7_FOLDER_PATH)
+    try: 
+    
+        print("\nThe following options may be selected to update the patient record, in both Ultra and the database.")
         
-    elif choice == "3": 
-        pass 
+        print("\nSelect a number from the menu below.")
+        print("1: Generate ORM^O01 message(s)")
+        print("2: Generate ORU^R01 message(s)")
+        print("3: No further action")
 
-    else: 
+        choice = input("\n: ")
+        
+        assert(1 <= int(choice) <= 3)
+        
+        if choice == "3": pass
+        
+        else:
+            print("\nSelect the type of message to generate using a number from the menu below.")
+
+            for i, pair in enumerate(panel_list):
+                print(f"{i+1}: {pair[0]} {pair[1]}")
+                
+            panel_choice = input("\n: ")
+            
+            assert(1 <= int(panel_choice) <= len(panel_list))
+            
+            if choice == "1": 
+                # Generate HL7 messages
+                for patient in patients: 
+                    try: 
+                        hl7 = create_orm_message(
+                                patient_info=patient, 
+                                messageType="ORM_O01", 
+                                panel_choice=f"{panel_list[int(panel_choice)-1][0]}^{panel_list[int(panel_choice)-1][1]}^L"
+                            )
+                        
+                        if not hl7:
+                            raise Exception("Error encountered during message construction")
+                        # Perform action here - could be save to flatfile, send to Ultra, etc.
+                        HL7_PROCESSOR.save_hl7_message_to_file(hl7_message=hl7, patient_id=patient.id)
+                        # forward_to_ultra(hl7_message=hl7)
+                    except Exception as e: 
+                        print(f"Message generation for patient {patient.id} failed: {repr(e)}")
+                    else:
+                        print(f"Message for patient {patient.id} generated successfully")
+                # Send HL7 messages to Ultra 
+                update_patients(db=FIRESTORE_DB, folder_path=HL7_FOLDER_PATH)
+
+            elif choice == "2": 
+                
+                sample_lower_bound = panel_list[int(panel_choice)-1][2]
+                sample_upper_bound = panel_list[int(panel_choice)-1][3]
+                
+                # For steps of 0.1...
+                sample_finding = str(random.randrange(sample_lower_bound*10, sample_upper_bound*10, 1) / 10)
+                sample_finding_units = panel_list[int(panel_choice)-1][4]
+                
+                print("Selected finding and units alright...")
+                
+                # Generate HL7 messages
+                for patient in patients: 
+                    try:
+                        hl7 = create_oru_message(patient_info=patient, messageType="ORU_R01", 
+                                                 panel_choice=f"{panel_list[int(panel_choice)-1][0]}^{panel_list[int(panel_choice)-1][1]}^L", 
+                                                 result=sample_finding, result_type="NM", units=sample_finding_units)
+                        if not hl7:
+                            raise Exception("Error encountered during message construction")
+                        # Perform action here - could be save to flatfile, send to Ultra, etc.
+                        HL7_PROCESSOR.save_hl7_message_to_file(hl7_message=hl7, patient_id=patient.id)
+                        # forward_to_ultra(hl7_message=hl7)
+                    except Exception as e: 
+                        print(f"Message generation for patient {patient.id} failed: {repr(e)}")
+                    else:
+                        print(f"Message for patient {patient.id} generated successfully")
+                # Send HL7 messages to Ultra 
+                update_patients(db=FIRESTORE_DB, folder_path=HL7_FOLDER_PATH)
+            
+    except AssertionError:
         print("Unrecognised input - please select a number from the menu below.")
         hl7_message_menu(patients=patients)
+            
+    except Exception as e:
+        print(f"The following exception occurred: {repr(e)}")
 
 
 if __name__ == '__main__':

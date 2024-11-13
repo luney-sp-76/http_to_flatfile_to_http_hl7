@@ -5,7 +5,7 @@ from poll_synthea.generators.utilities import PatientInfo, call_for_patients, mo
     parse_fhir_message, patient_exists, save_to_firestore, parse_HL7_message, update_following_ORM_O01, \
     update_following_ORU_R01, get_firestore_age_range, under_document_size_limit, retrieve_firestore_patients_by_name, calculate_age, \
     retrieve_all_patient_records, firestore_doc_to_patient_info
-from poll_synthea.main import initialize_firestore, create_adt_message
+from poll_synthea.main import initialize_firestore, create_adt_message, HL7MessageProcessor
 from tcp_client import send_hl7_message
 import random
 
@@ -206,16 +206,36 @@ def retrieve_patients(db: firestore.client) -> list[PatientInfo] | None:
                     post_max_id = patient.max_hl7v2_id
                     
                     if prior_max_id != post_max_id:
+                        
+                        MessageProcessor = HL7MessageProcessor(hl7_folder_path=HL7_GEN_FOLDER_PATH, db=db)
+                        
                         print(f"No existing ID found for patient {patient.id} - generating new HL7v2 id...")
+                        
                         hl7 = create_adt_message(patient_info=patient, messageType="ADT_A01")
                         if not hl7:
                             raise Exception("Malformed HL7 message")
+                        else:
+                            print("Generated ADT^A01 HL7 message...")
+                        
                         response = forward_to_ultra(hl7_message=hl7)
                         if response != 200:
+                            pathlib.Path(FAILED_FOLDER_PATH).mkdir(exist_ok=True)
+                            MessageProcessor.save_hl7_message_to_file(hl7_message=hl7, 
+                                                                   patient_id=patient.id, 
+                                                                   hl7_folder_path=FAILED_FOLDER_PATH)
                             raise UltraNotHappyError()
+                        else:
+                            pathlib.Path(SENT_HL7_PATH).mkdir(exist_ok=True)
+                            MessageProcessor.save_hl7_message_to_file(hl7_message=hl7, 
+                                                                   patient_id=patient.id, 
+                                                                   hl7_folder_path=SENT_HL7_PATH)
+                            print("ADT^A01 message received successfully by ULTRA...")
+                        
                         response = save_to_firestore(db=db, patient_info=patient, update_record=True)
                         if response != 200:
                             raise Exception("Unable to save info to the database")
+                        else:
+                            print("Patient info successfully saved to the database.")
                     
             except UltraNotHappyError as e:
                 print("Ultra did not successfully receive / process ADT^A01 - aborting save to database and retrieval of patients.")
