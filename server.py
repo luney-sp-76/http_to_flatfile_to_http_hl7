@@ -91,7 +91,7 @@ def generate_ack(hl7_message, ack_type='AA', error_message=None):
     return ack_message
 
 
-def send_to_tcp_server(hl7_message, tcp_host='localhost', tcp_port=8081):
+def send_to_tcp_server(hl7_message, tcp_host='localhost', tcp_port=8082):
     """
     Sends an HL7 message to a TCP server.
 

@@ -174,7 +174,7 @@ class HL7TCPHandler(socketserver.BaseRequestHandler):
             self.request.sendall(ack_message.encode('utf-8'))
             # Forward the HL7 message to a remote TCP host
             remote_host = 'localhost'  # Replace with actual remote host
-            remote_port = 8082  # Replace with actual remote port
+            remote_port = 6002  # Replace with actual remote port
             print(
                 f"Forwarded HL7 message to remote TCP host. Response: "
                 f"{forward_to_remote_host(data, remote_host, remote_port)}"
@@ -193,7 +193,7 @@ class HL7TCPHandler(socketserver.BaseRequestHandler):
             self.request.sendall(error_message.encode('utf-8'))
 
 
-def run_tcp_server(host='localhost', port=8081):
+def run_tcp_server(host='localhost', port=8082):
     """
     Runs the TCP server.
 
